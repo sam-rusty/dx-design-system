@@ -1,6 +1,4 @@
-mod db_enum;
 mod filter_derive;
-mod helpers;
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -59,14 +57,6 @@ pub fn on_web(input: TokenStream) -> TokenStream {
 pub fn derive_filter_option(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     filter_derive::derive_filter_option_impl(input)
-}
-
-/// Derives Display, FromStr, and AsRef<str> for unit enums. See `libs/macros/README.md`
-/// for usage and attribute table.
-#[proc_macro_derive(DbEnum, attributes(db_enum))]
-pub fn derive_db_enum(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    db_enum::derive_db_enum_impl(input)
 }
 
 #[proc_macro_derive(FilterColumns, attributes(filter))]

@@ -113,7 +113,7 @@ pub use link::{Link, LinkType};
 pub use list_view::{FetchFn, ListEmpty, ListPage, ListView, RenderFn};
 pub use loading_overlay::LoadingOverlay;
 pub use logo::Logo;
-pub use macros::{FilterColumns, FilterOption, FormFields, FormOptions, Steps};
+pub use macros::{FormFields, FormOptions, Steps};
 pub use modal::{Modal, ModalSize};
 #[cfg(target_arch = "wasm32")]
 pub use nav_sliding_indicator::sliding_indicator_style;

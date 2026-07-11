@@ -113,11 +113,8 @@ impl<T: FormData> Form<T> {
                     false,
                     "Form::set: serialization failed for field {field:?}: {e}"
                 );
-                tracing::warn!(
-                    target: "components::form",
-                    field,
-                    error = %e,
-                    "Form::set serialization failed; storing empty string"
+                eprintln!(
+                    "Form::set serialization failed for field {field:?}: {e}; storing empty string"
                 );
                 String::new()
             }

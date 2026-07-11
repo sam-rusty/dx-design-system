@@ -156,8 +156,7 @@ pub trait StepDefinition: StepId + Sized {
             Some(i) => i,
             None => {
                 debug_assert!(false, "step variant must appear in ALL");
-                tracing::warn!(
-                    target: "components::stepper",
+                eprintln!(
                     "StepDefinition::ordinal: variant not in ALL; using index 0 (check Steps macro / ALL const)"
                 );
                 0

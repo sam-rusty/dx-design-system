@@ -47,7 +47,7 @@ impl AppError {
             return err;
         }
         #[cfg(feature = "server")]
-        crate::error!("{message}");
+        eprintln!("{message}");
         AppError::InternalServer("Internal Server Error".to_string())
     }
 
@@ -105,7 +105,7 @@ on_server! {
             // Sanitize internal errors — never leak the actual message
             let sanitized: AppError = match self {
                 AppError::InternalServer(ref msg) => {
-                    crate::error!("{msg}");
+                    eprintln!("{msg}");
                     AppError::InternalServer("Internal Server Error".to_string())
                 }
                 other => other,
@@ -153,23 +153,15 @@ on_server! {
 
     impl From<std::env::VarError> for AppError {
         fn from(e: std::env::VarError) -> Self {
-            crate::error!("error getting env variable: {e}");
+            eprintln!("error getting env variable: {e}");
             AppError::InternalServer("Internal Server Error".to_string())
         }
     }
 
     impl From<serde::de::value::Error> for AppError {
         fn from(value: serde::de::value::Error) -> Self {
-            crate::error!("serde error: {value}");
+            eprintln!("serde error: {value}");
             AppError::InternalServer("Internal Server Error".to_string())
-        }
-    }
-
-    impl From<sqlx::Error> for AppError {
-        fn from(value: sqlx::Error) -> Self {
-            let err = crate::db_error_messages::ErrorFormatting::sqlx(value);
-            err.apply_status();
-            err
         }
     }
 }
@@ -206,7 +198,7 @@ impl From<serde_json::Error> for AppError {
 impl From<uuid::Error> for AppError {
     fn from(_value: uuid::Error) -> Self {
         #[cfg(feature = "server")]
-        crate::error!("{_value}");
+        eprintln!("{_value}");
         AppError::InternalServer("Error Parsing Uuid".to_string())
     }
 }

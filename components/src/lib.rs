@@ -42,7 +42,6 @@ pub(crate) mod link;
 pub(crate) mod list_view;
 pub(crate) mod loading_overlay;
 pub(crate) mod logo;
-pub(crate) mod multi_search;
 pub(crate) mod nav_sliding_indicator;
 pub(crate) mod nav_tabs;
 pub(crate) mod placement;
@@ -60,7 +59,6 @@ pub(crate) mod spinner;
 pub(crate) mod tabs;
 pub(crate) mod text;
 pub(crate) mod textarea;
-pub mod theme;
 pub(crate) mod title;
 pub(crate) mod toast;
 pub(crate) mod toggle_card;
@@ -117,7 +115,6 @@ pub use loading_overlay::LoadingOverlay;
 pub use logo::Logo;
 pub use macros::{FilterColumns, FilterOption, FormFields, FormOptions, Steps};
 pub use modal::{Modal, ModalSize};
-pub use multi_search::MultiSearch;
 #[cfg(target_arch = "wasm32")]
 pub use nav_sliding_indicator::sliding_indicator_style;
 pub use nav_sliding_indicator::{
@@ -149,7 +146,6 @@ pub use stepper::{
 pub use tabs::{TabItem, TabType, Tabs};
 pub use text::{Text, TextSize, TextVariant};
 pub use textarea::{TextArea, TextAreaBase, TextAreaResize, textarea_insert_at_cursor};
-pub use theme::{Theme, ThemeMenuView};
 pub use title::{Title, TitleSize};
 pub use toast::{ToastItem, ToastPlacement, ToastStore, ToastVariant, Toaster, use_toast};
 pub use toggle_card::{Switch, ToggleCard};

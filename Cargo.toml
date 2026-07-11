@@ -28,15 +28,13 @@ lambda_http = "1.2.1"
 mockito = "1.7"
 num-traits = "0.2.19"
 openssl = { version = "0.10.81", features = ["vendored"] }
-phf = { version = "0.13.1", features = ["macros"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rusty-s3 = { version = "0.9.1" }
-sentry = { version = "0.48.2", features = ["tracing", "logs"] }
+sentry = { version = "0.48.2", features = ["logs"] }
 serde = "1"
 serde_json = "1"
 serde_qs = "1.1.2"
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "macros", "migrate", "postgres", "uuid", "time", "json"] }
 strum = "0.28"
 strum_macros = "0.28"
 thiserror = "2.0.18"
@@ -46,8 +44,6 @@ tokio = { version = "1", features = ["rt-multi-thread"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tower = "0.5.3"
 tower-http = "0.7.0"
-tracing = { version = "0.1.44", features = ["attributes"] }
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 uuid = { version = "1.23.3", features = ["serde", "v4", "v5", "v7"] }
 validator = { version = "0.20.0", features = ["derive"], default-features = false }
 # Pinned: must match the wasm-bindgen CLI worker-build invokes, and stay ABI-compatible with js-sys/web-sys 0.3.

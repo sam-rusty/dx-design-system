@@ -1,8 +1,8 @@
+use super::Date as WireDate;
 use components::{InputBase, Modal, ModalSize};
 use dioxus::prelude::*;
 use time::Date;
 use utils::format::merge;
-use utils::types::Date as WireDate;
 
 use super::panel::{CalendarPanel, SelectionState};
 use super::shared::{format_display_date, *};

@@ -13,12 +13,4 @@ syn = { version = "2", features = ["full"] }
 
 [dev-dependencies]
 serde = { workspace = true, features = ["derive"] }
-sqlx = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt"] }
-utils = { workspace = true, features = ["server"] }
-
-# Lets `DbEnum`-emitted `#[cfg(feature = "server")]` impls light up
-# inside this crate's own integration tests. No effect on macro output;
-# downstream crates still gate via their own `server` feature.
-[features]
-server = []
+utils = { workspace = true }

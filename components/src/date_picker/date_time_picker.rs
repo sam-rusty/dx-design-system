@@ -1,7 +1,7 @@
+use super::DateTime as WireDateTime;
 use dioxus::prelude::*;
 use time::{Date, PrimitiveDateTime, Time};
 use utils::format::merge;
-use utils::types::DateTime as WireDateTime;
 
 use super::panel::{CalendarPanel, PickerFooter, SelectionState};
 use super::shared::*;

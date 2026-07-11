@@ -61,8 +61,7 @@ pub fn derive_filter_option(input: TokenStream) -> TokenStream {
     filter_derive::derive_filter_option_impl(input)
 }
 
-/// Derives Display, FromStr, AsRef<str>, sqlx `Type`/`Encode`/`Decode` (Postgres), and
-/// `from_row` helpers for unit enums persisted to the database. See `libs/macros/README.md`
+/// Derives Display, FromStr, and AsRef<str> for unit enums. See `libs/macros/README.md`
 /// for usage and attribute table.
 #[proc_macro_derive(DbEnum, attributes(db_enum))]
 pub fn derive_db_enum(input: TokenStream) -> TokenStream {

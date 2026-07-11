@@ -1,5 +1,3 @@
-mod filter_derive;
-
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
@@ -51,18 +49,6 @@ pub fn on_server(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn on_web(input: TokenStream) -> TokenStream {
     cfg_feature_items(input, "web")
-}
-
-#[proc_macro_derive(FilterOption, attributes(option))]
-pub fn derive_filter_option(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    filter_derive::derive_filter_option_impl(input)
-}
-
-#[proc_macro_derive(FilterColumns, attributes(filter))]
-pub fn derive_filter_columns(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    filter_derive::derive_filter_columns_impl(input)
 }
 
 /// Generates typed field constants for each struct field. See `libs/macros/README.md` for usage.

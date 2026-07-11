@@ -19,12 +19,10 @@ validator = { workspace = true }
 web-sys = { workspace = true, optional = true }
 
 [features]
-lambda-runtime = []
 server = [
     "dioxus/server",
     "dep:http",
 ]
-
 web = ["dioxus/web", "web-sys/Storage"]
 
 [dev-dependencies]

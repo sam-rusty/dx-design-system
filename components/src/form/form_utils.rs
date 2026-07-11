@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use serde_json::{Value, json};
-use utils::{MyError, Result};
+use utils::{DsError, Result};
 use validator::ValidationErrors;
 
 use crate::field_name::FieldType;
@@ -53,7 +53,7 @@ pub fn parse_form_data<T: FormData>(
         }
     }
 
-    serde_json::from_value(root_val).map_err(|e| MyError::Other(e.to_string()))
+    serde_json::from_value(root_val).map_err(|e| DsError::Other(e.to_string()))
 }
 
 pub fn is_field_empty(values: &HashMap<String, String>, field: &str) -> bool {

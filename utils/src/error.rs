@@ -5,7 +5,7 @@ use thiserror::Error;
 use validator::ValidationErrors;
 
 #[derive(Error, Clone, Debug, Serialize, Deserialize)]
-pub enum MyError {
+pub enum DsError {
     #[error("{0}")]
     InternalServer(String),
     #[error("{0}")]
@@ -14,7 +14,7 @@ pub enum MyError {
     Validation(String, ValidationErrors),
 }
 
-impl MyError {
+impl DsError {
     pub fn form_field_error(field: &'static str, message: String) -> ValidationErrors {
         let mut errors = ValidationErrors::new();
         let err = validator::ValidationError::new("").with_message(Cow::Owned(message));

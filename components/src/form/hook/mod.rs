@@ -6,7 +6,7 @@ pub use action::{FormSubmit, SubmitFn, captured_app_error};
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
-use utils::MyError;
+use utils::DsError;
 use utils::format::snake_to_title;
 use validator::{Validate, ValidationError, ValidationErrors};
 
@@ -401,9 +401,9 @@ impl<T: FormData> Form<T> {
     /// Populate form errors from a server `AppError` without touching values/reset.
     /// `Validation` errors flow to per-field slots plus `__global`; everything else
     /// surfaces in the `__global` slot only.
-    pub fn set_server_error(&self, error: MyError) {
+    pub fn set_server_error(&self, error: DsError) {
         match error {
-            MyError::Validation(msg, errors) => {
+            DsError::Validation(msg, errors) => {
                 self.set_global_error(&msg);
                 self.add_validation_errors(errors);
             }

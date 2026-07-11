@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::AppError;
+use utils::MyError;
 
 /// Renders the four standard states of a `use_resource` result in one place:
 /// loading (`skeleton`), error (`error`), empty (`empty`), and loaded (`view`).
@@ -20,11 +20,11 @@ use utils::AppError;
 /// ```
 #[component]
 pub fn ResourceView<T: Clone + PartialEq + 'static>(
-    resource: Resource<Result<T, AppError>>,
+    resource: Resource<Result<T, MyError>>,
     /// Shown while the resource is loading (value is `None`).
     skeleton: Element,
     /// Shown when the resource resolved to `Err`.
-    error: Callback<AppError, Element>,
+    error: Callback<MyError, Element>,
     /// Shown when the loaded value is empty (per `is_empty`).
     empty: Element,
     /// Returns `true` when the loaded value should render `empty` instead of `view`.

@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use utils::AppError;
+use utils::MyError;
 use utils::format::merge;
 
 use crate::alert::Alert;
@@ -21,9 +21,9 @@ type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + 'static>>;
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
 #[cfg(not(target_arch = "wasm32"))]
-type FetchTrait<T> = dyn Fn(u32, u32) -> BoxFuture<Result<ListPage<T>, AppError>> + Send + Sync;
+type FetchTrait<T> = dyn Fn(u32, u32) -> BoxFuture<Result<ListPage<T>, MyError>> + Send + Sync;
 #[cfg(target_arch = "wasm32")]
-type FetchTrait<T> = dyn Fn(u32, u32) -> BoxFuture<Result<ListPage<T>, AppError>>;
+type FetchTrait<T> = dyn Fn(u32, u32) -> BoxFuture<Result<ListPage<T>, MyError>>;
 
 /// Wrapper for a fetch function that boxes the future and implements PartialEq (always false).
 #[allow(clippy::type_complexity)]
@@ -45,7 +45,7 @@ impl<T> PartialEq for FetchFn<T> {
 impl<T: 'static, F, Fut> From<F> for FetchFn<T>
 where
     F: Fn(u32, u32) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<ListPage<T>, AppError>> + Send + 'static,
+    Fut: Future<Output = Result<ListPage<T>, MyError>> + Send + 'static,
 {
     fn from(f: F) -> Self {
         Self(Arc::new(move |page, per_page| Box::pin(f(page, per_page))))
@@ -56,7 +56,7 @@ where
 impl<T: 'static, F, Fut> From<F> for FetchFn<T>
 where
     F: Fn(u32, u32) -> Fut + 'static,
-    Fut: Future<Output = Result<ListPage<T>, AppError>> + 'static,
+    Fut: Future<Output = Result<ListPage<T>, MyError>> + 'static,
 {
     fn from(f: F) -> Self {
         Self(Arc::new(move |page, per_page| Box::pin(f(page, per_page))))
@@ -299,7 +299,7 @@ fn ListViewBodyReady<T, K>(
     #[props(into)] render: RenderFn<T>,
     item_key: fn(&T) -> K,
     mut page: Signal<u32>,
-    resource: Resource<Result<ListPage<T>, AppError>>,
+    resource: Resource<Result<ListPage<T>, MyError>>,
     #[props(default)] skeleton: Option<Element>,
 ) -> Element
 where

@@ -4,7 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-axum = { workspace = true, optional = true }
 dioxus = { workspace = true }
 http = { workspace = true, optional = true }
 js-sys = { workspace = true }
@@ -16,8 +15,6 @@ strum = { workspace = true, features = ["derive"] }
 strum_macros = { workspace = true }
 thiserror.workspace = true
 time = { workspace = true }
-tokio = { workspace = true, optional = true }
-uuid = { workspace = true, features = ["js", "v4"] }
 validator = { workspace = true }
 web-sys = { workspace = true, optional = true }
 
@@ -25,11 +22,7 @@ web-sys = { workspace = true, optional = true }
 lambda-runtime = []
 server = [
     "dioxus/server",
-    "dep:tokio",
-    "dep:axum",
     "dep:http",
-    "uuid/std",
-    "uuid/v7",
 ]
 
 web = ["dioxus/web", "web-sys/Storage"]

@@ -1,6 +1,6 @@
 use dioxus::CapturedError;
 use dioxus::prelude::*;
-use utils::AppError;
+use utils::MyError;
 
 pub type SubmitFn = Box<dyn FnMut()>;
 
@@ -75,11 +75,11 @@ impl<T: 'static, O: 'static> From<Action<(T,), O>> for FormSubmit<T> {
 
 /// Recover the original [`AppError`] from a Dioxus [`CapturedError`], falling back to a generic
 /// internal-server error when the captured error is not an `AppError`.
-pub fn captured_app_error(captured: &CapturedError) -> AppError {
+pub fn captured_app_error(captured: &CapturedError) -> MyError {
     captured
-        .downcast_ref::<AppError>()
+        .downcast_ref::<MyError>()
         .cloned()
-        .unwrap_or_else(|| AppError::InternalServer(captured.to_string()))
+        .unwrap_or_else(|| MyError::InternalServer(captured.to_string()))
 }
 
 fn action_result<I: 'static, O: 'static>(action: &Action<I, O>) -> Option<utils::Result<()>> {

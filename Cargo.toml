@@ -6,52 +6,21 @@ package.edition = "2024"
 package.version = "0.2.0"
 
 [workspace.dependencies]
-axum = { version = "0.8.9" }
-axum-aws-lambda = "0.11.0"
-axum-test = "20.1.0"
-base64 = "0.22"
-console_error_panic_hook = { version = "0.1" }
-cookie = "0.18.1"
-csv = "1.4"
 dioxus = { git = "https://github.com/sam-rusty/dioxus", features = ["router", "fullstack", "launch", "lib"], default-features = false }
-dotenvy = "0.15"
-envy = "0.4.2"
-futures = "0.3"
-gloo-net = { version = "0.7.0", default-features = false, features = ["http"] }
-governor = "0.10.4"
-hex = "0.4.3"
 http = "1.4.2"
-jemallocator = "0.5.4"
 js-sys = "0.3.102"
-jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
-lambda_http = "1.2.1"
-mockito = "1.7"
 num-traits = "0.2.19"
-openssl = { version = "0.10.81", features = ["vendored"] }
-qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-rusty-s3 = { version = "0.9.1" }
-sentry = { version = "0.48.2", features = ["logs"] }
 serde = "1"
 serde_json = "1"
-serde_qs = "1.1.2"
 strum = "0.28"
 strum_macros = "0.28"
 thiserror = "2.0.18"
 time = { version = "0.3", features = ["serde", "serde-human-readable", "wasm-bindgen", "macros", "formatting"] }
-time-tz = { version = "2", features = ["db"] }
-tokio = { version = "1", features = ["rt-multi-thread"] }
-tokio-util = { version = "0.7", features = ["rt"] }
-tower = "0.5.3"
-tower-http = "0.7.0"
-uuid = { version = "1.23.3", features = ["serde", "v4", "v5", "v7"] }
 validator = { version = "0.20.0", features = ["derive"], default-features = false }
 # Pinned: must match the wasm-bindgen CLI worker-build invokes, and stay ABI-compatible with js-sys/web-sys 0.3.
 wasm-bindgen = { version = "0.2.125" }
 web-sys = "0.3.102"
-worker = "0.8.5"
 
 # local crates
 macros = { path = "./macros" }
 utils = { path = "./utils", default-features = false }
-components = { path = "./libs/components", default-features = false }

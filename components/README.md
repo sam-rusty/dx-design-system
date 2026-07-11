@@ -43,7 +43,6 @@ How to use exported UI from `components`. The full export list is [`src/lib.rs`]
 - [ResourceView](#resourceview)
 - [use_action_feedback](#use_action_feedback)
 - [Toaster / Toast](#toaster--toast)
-- [MultiSearch](#multisearch)
 - [ChipToggle](#chiptoggle)
 - [Tabs](#tabs)
 - [Tooltip](#tooltip)
@@ -1497,17 +1496,6 @@ toast.push("Saved".into(), ToastVariant::Success);
 ```
 
 Manual shell (e.g. tests): `use_context_provider(ToastStore::new)` and `rsx! { Toaster {} }` in the same subtree as consumers.
-
----
-
-## MultiSearch
-
-| Prop | Type | Default |
-|------|------|---------|
-| `filters` | `Signal<FilterSet>` | required |
-| `on_filters_applied` | `Option<EventHandler<()>>` | `None` |
-
-`C: FilterColumns` via `#[derive(FilterColumns)]` on your column enum. In `view!`, use `<MultiSearch<MyColumn> … />` (not `MultiSearch::<MyColumn>`).
 
 ---
 

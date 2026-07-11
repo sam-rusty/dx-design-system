@@ -1,0 +1,22 @@
+[package]
+name = "components"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dioxus = { workspace = true }
+js-sys = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+strum_macros = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+validator = { workspace = true }
+wasm-bindgen = { workspace = true, optional = true }
+web-sys = { workspace = true, features = ["Blob", "Clipboard", "DataTransfer", "Document", "DomRect", "DomTokenList", "DragEvent", "Element", "Event", "EventTarget", "File", "FileList", "FileReader", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "MediaQueryList", "Navigator", "Node", "Storage", "Window"] }
+
+macros = { workspace = true }
+utils = { workspace = true }
+
+[features]
+web = ["dioxus/web", "utils/web", "dep:js-sys", "dep:wasm-bindgen"]

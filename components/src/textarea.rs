@@ -3,7 +3,9 @@ use ds_macros::on_web;
 use ds_utils::format::merge;
 
 use crate::field_name::Field;
-use crate::form::{FieldContext, FloatingLabel, FormContext, FormError, FormField};
+use crate::form::{FormFieldFrame, use_field_binding};
+use crate::hooks::use_controlled;
+use crate::input::FieldSize;
 
 on_web! {
     mod js {
@@ -59,7 +61,7 @@ impl TextAreaResize {
 }
 
 const TEXTAREA_BASE: &str = "peer flex w-full min-h-[80px] min-w-0 rounded-lg border border-input \
-     bg-transparent px-4 py-2 text-sm text-foreground transition-all duration-200 outline-none \
+     bg-transparent text-foreground transition-all duration-200 outline-none \
      placeholder:text-transparent focus:placeholder:text-muted-foreground/70 focus:border-primary \
      focus:ring-1 focus:ring-primary disabled:pointer-events-none disabled:cursor-not-allowed \
      disabled:opacity-50 disabled:bg-muted/50 aria-invalid:border-destructive \
@@ -67,184 +69,215 @@ const TEXTAREA_BASE: &str = "peer flex w-full min-h-[80px] min-w-0 rounded-lg bo
      focus:aria-invalid:ring-1 read-only:bg-muted/50";
 
 const TEXTAREA_FORM_BASE: &str = "peer block w-full min-h-[80px] appearance-none rounded-lg border \
-     border-input bg-transparent px-4 py-2 text-sm text-foreground transition-colors \
+     border-input bg-transparent text-foreground transition-colors \
      focus-visible:border-primary focus-visible:outline-none focus-visible:ring-1 \
      focus-visible:ring-primary data-[invalid=true]:border-destructive";
 
-#[component]
-pub fn TextAreaBase(
-    #[props(default)] class: String,
-    #[props(default)] placeholder: Option<String>,
-    #[props(default)] name: Option<String>,
-    #[props(default)] id: Option<String>,
-    #[props(default)] title: Option<String>,
-    #[props(default)] disabled: bool,
-    #[props(default)] readonly: bool,
-    #[props(default)] required: bool,
-    #[props(default)] autofocus: bool,
-    #[props(default)] rows: Option<u32>,
-    #[props(default)] cols: Option<u32>,
-    #[props(default)] minlength: Option<u32>,
-    #[props(default)] maxlength: Option<u32>,
-    #[props(default)] resize: TextAreaResize,
-    #[props(default)] value: Option<Signal<String>>,
-    #[props(default)] static_value: Option<String>,
-    #[props(default)] on_change: Option<EventHandler<String>>,
-    #[props(default)] onchange: Option<EventHandler<FormEvent>>,
-    #[props(default)] onblur: Option<EventHandler<FocusEvent>>,
-    #[props(default)] onkeydown: Option<EventHandler<KeyboardEvent>>,
-    #[props(default)] aria_invalid: Option<String>,
-    #[props(default)] aria_describedby: Option<String>,
-) -> Element {
-    let merged_class = merge(&[TEXTAREA_BASE, resize.as_class(), &class]);
+/// Padding + text classes for each [`FieldSize`] on a textarea.
+fn size_classes(size: FieldSize) -> &'static str {
+    match size {
+        FieldSize::Default => "px-4 py-2 text-sm",
+        FieldSize::Sm => "px-3 py-1.5 text-xs",
+        FieldSize::Xs => "px-2 py-1 text-xs",
+    }
+}
 
-    let actual_placeholder = placeholder.as_deref().unwrap_or(" ");
-    let current_value = value.map(|s| s()).or(static_value).unwrap_or_default();
+/// Props for [`TextAreaBase`].
+#[derive(Props, Clone, PartialEq)]
+pub struct TextAreaBaseProps {
+    /// Controlled value. `Some` makes the caller the source of truth (pair
+    /// with `on_value_change`); `None` leaves the textarea uncontrolled.
+    #[props(default)]
+    pub value: ReadSignal<Option<String>>,
+    /// Initial value when uncontrolled.
+    #[props(default)]
+    pub default_value: String,
+    /// Fired with the new value on every input event.
+    #[props(default)]
+    pub on_value_change: Callback<String>,
+    /// Fired with the committed value on the change event (blur).
+    #[props(default)]
+    pub on_commit: Callback<String>,
+    /// Fired when the textarea loses focus.
+    #[props(default)]
+    pub on_blur: Callback<FocusEvent>,
+    /// Fired on keydown.
+    #[props(default)]
+    pub on_key_down: Callback<KeyboardEvent>,
+    /// Whether the textarea is disabled.
+    #[props(default)]
+    pub disabled: ReadSignal<bool>,
+    /// Visual size (shared [`FieldSize`] scale).
+    #[props(default)]
+    pub size: FieldSize,
+    /// Resize handle behavior.
+    #[props(default)]
+    pub resize: TextAreaResize,
+    /// Extra classes merged into the base style; the full class list when `unstyled`.
+    #[props(default)]
+    pub class: String,
+    /// Placeholder text (defaults to the floating-label space hack).
+    #[props(default)]
+    pub placeholder: Option<String>,
+    /// DOM id. Form bindings set this to the field name so labels target it.
+    #[props(default)]
+    pub id: Option<String>,
+    /// Autofocus on mount.
+    #[props(default)]
+    pub autofocus: bool,
+    /// Skip the built-in styling entirely; `class` is used verbatim.
+    #[props(default)]
+    pub unstyled: bool,
+    /// `aria-invalid` value (form bindings set `"true"` on validation failure).
+    #[props(default)]
+    pub aria_invalid: Option<String>,
+    /// `aria-describedby` target (the field's error element id).
+    #[props(default)]
+    pub aria_describedby: Option<String>,
+    /// Additional attributes (`rows`, `cols`, `minlength`, `maxlength`,
+    /// `name`, `readonly`, `required`, `autofocus`, ...).
+    #[props(extends = GlobalAttributes, extends = textarea)]
+    pub attributes: Vec<Attribute>,
+}
+
+pub fn TextAreaBase(props: TextAreaBaseProps) -> Element {
+    let merged_class = if props.unstyled {
+        props.class.clone()
+    } else {
+        merge(&[
+            TEXTAREA_BASE,
+            props.resize.as_class(),
+            size_classes(props.size),
+            &props.class,
+        ])
+    };
+
+    let (value, set_value) = use_controlled(
+        props.value,
+        props.default_value.clone(),
+        props.on_value_change,
+    );
+
+    let actual_placeholder = props.placeholder.clone().unwrap_or_else(|| " ".to_string());
+    let on_commit = props.on_commit;
+    let on_blur = props.on_blur;
+    let on_key_down = props.on_key_down;
+    let disabled = props.disabled;
 
     rsx! {
         textarea {
             "data-name": "TextArea",
             class: "{merged_class}",
             placeholder: actual_placeholder,
-            name: name,
-            id: id,
-            title: title,
-            disabled: disabled,
-            readonly: readonly,
-            required: required,
-            autofocus: autofocus,
-            rows: rows,
-            cols: cols,
-            minlength: minlength,
-            maxlength: maxlength,
-            "aria-invalid": aria_invalid,
-            "aria-describedby": aria_describedby,
-            value: "{current_value}",
-            oninput: move |ev| {
-                if let Some(mut signal) = value {
-                    signal.set(ev.value());
-                }
-                if let Some(handler) = &on_change {
-                    handler.call(ev.value());
-                }
-            },
-            onchange: move |ev| {
-                if let Some(handler) = &onchange {
-                    handler.call(ev);
-                }
-            },
-            onblur: move |ev| {
-                if let Some(handler) = &onblur {
-                    handler.call(ev);
-                }
-            },
-            onkeydown: move |ev| {
-                if let Some(handler) = &onkeydown {
-                    handler.call(ev);
-                }
-            },
+            id: props.id.clone(),
+            autofocus: props.autofocus,
+            disabled: disabled(),
+            "aria-invalid": props.aria_invalid.clone(),
+            "aria-describedby": props.aria_describedby.clone(),
+            value: value(),
+            oninput: move |ev| set_value(ev.value()),
+            onchange: move |ev: FormEvent| on_commit.call(ev.value()),
+            onblur: move |ev| on_blur.call(ev),
+            onkeydown: move |ev| on_key_down.call(ev),
+            ..props.attributes,
         }
     }
 }
 
+/// Form-context binding for [`TextAreaBase`].
 #[component]
-pub(crate) fn TextAreaFormControl(
-    #[props(default)] class: String,
+pub(crate) fn TextAreaControl(
     #[props(default)] autofocus: bool,
     #[props(default)] rows: Option<u32>,
     #[props(default)] cols: Option<u32>,
     #[props(default)] minlength: Option<u32>,
     #[props(default)] maxlength: Option<u32>,
+    #[props(default)] size: FieldSize,
     #[props(default)] resize: TextAreaResize,
 ) -> Element {
-    let field_ctx = use_context::<FieldContext>();
-    let field_name = field_ctx.name.clone();
-    let form_ctx = use_context::<FormContext>();
+    let binding = use_field_binding();
 
-    let textarea_class = if class.is_empty() {
-        merge(&[TEXTAREA_FORM_BASE, resize.as_class()])
-    } else {
-        class
-    };
+    let form_class = merge(&[
+        TEXTAREA_FORM_BASE,
+        resize.as_class(),
+        size_classes(size),
+    ]);
 
-    let id = String::from(&*field_name);
-    let aria_describedby = format!("{}-error", field_name);
-
-    let is_disabled = form_ctx.disabled.map(|d| d()).unwrap_or(false);
-    let is_touched = form_ctx.touched_signal.with(|t| t.contains(&*field_name));
-    let has_error = form_ctx
-        .errors_signal
-        .with(|e| e.get(&*field_name).is_some_and(|err| err.is_some()));
-    let aria_invalid = if is_touched && has_error {
-        Some("true".to_string())
-    } else {
-        None
-    };
-
-    let field_value = form_ctx
-        .values_signal
-        .with(|v| v.get(&*field_name).cloned().unwrap_or_default());
+    let touch = binding.touch;
 
     rsx! {
         TextAreaBase {
-            id: id,
-            placeholder: " ".to_string(),
-            class: textarea_class,
-            disabled: is_disabled,
-            autofocus: autofocus,
-            rows: rows,
-            cols: cols,
-            minlength: minlength,
-            maxlength: maxlength,
-            resize: resize,
-            aria_invalid: aria_invalid,
-            aria_describedby: aria_describedby,
-            // Controlled read: form is the source of truth, `on_change` writes back.
-            // No mirror signal / per-render `set` (the prop→signal sync anti-pattern).
-            static_value: field_value,
-            on_change: {
-                let field_name = field_name.clone();
-                EventHandler::new(move |v: String| {
-                    form_ctx.set_value.read()(&field_name, v);
-                })
-            },
-            onblur: {
-                let field_name = field_name.clone();
-                EventHandler::new(move |_: FocusEvent| {
-                    form_ctx.touch_field.read()(&field_name);
-                })
-            },
+            id: binding.id.clone(),
+            class: form_class,
+            unstyled: true,
+            value: binding.controlled_value,
+            on_value_change: binding.on_value_change,
+            on_commit: binding.on_commit,
+            on_blur: move |_: FocusEvent| touch.call(()),
+            disabled: ReadSignal::from(binding.disabled),
+            aria_invalid: binding.aria_invalid(),
+            aria_describedby: binding.aria_describedby.clone(),
+            autofocus,
+            rows,
+            cols,
+            minlength,
+            maxlength,
         }
     }
 }
 
-#[component]
-pub fn TextArea(
-    #[props(into)] field: Field,
-    #[props(default)] autofocus: bool,
-    #[props(default)] rows: Option<u32>,
-    #[props(default)] cols: Option<u32>,
-    #[props(default)] minlength: Option<u32>,
-    #[props(default)] maxlength: Option<u32>,
-    #[props(default)] resize: TextAreaResize,
-    #[props(default)] tooltip: Option<Element>,
-) -> Element {
-    let label = field.label.to_string();
+/// Props for [`TextArea`], the form-bound textarea.
+#[derive(Props, Clone, PartialEq)]
+pub struct TextAreaProps {
+    /// The bound form field.
+    #[props(into)]
+    pub field: Field,
+    /// Autofocus on mount.
+    #[props(default)]
+    pub autofocus: bool,
+    /// Visible rows.
+    #[props(default)]
+    pub rows: Option<u32>,
+    /// Visible columns.
+    #[props(default)]
+    pub cols: Option<u32>,
+    /// Minimum accepted length.
+    #[props(default)]
+    pub minlength: Option<u32>,
+    /// Maximum accepted length.
+    #[props(default)]
+    pub maxlength: Option<u32>,
+    /// Visual size (shared [`FieldSize`] scale).
+    #[props(default)]
+    pub size: FieldSize,
+    /// Resize handle behavior.
+    #[props(default)]
+    pub resize: TextAreaResize,
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+    /// Extra classes merged onto the field wrapper.
+    #[props(default)]
+    pub class: String,
+}
 
+/// Form-bound textarea with floating label and inline error.
+pub fn TextArea(props: TextAreaProps) -> Element {
     rsx! {
-        FormField { field,
-            div { class: "relative w-full mt-2",
-                TextAreaFormControl {
-                    autofocus: autofocus,
-                    rows: rows,
-                    cols: cols,
-                    minlength: minlength,
-                    maxlength: maxlength,
-                    resize: resize,
-                }
-                FloatingLabel { textarea: true, tooltip, "{label}" }
+        FormFieldFrame {
+            field: props.field,
+            tooltip: props.tooltip,
+            class: props.class,
+            textarea: true,
+            TextAreaControl {
+                autofocus: props.autofocus,
+                rows: props.rows,
+                cols: props.cols,
+                minlength: props.minlength,
+                maxlength: props.maxlength,
+                size: props.size,
+                resize: props.resize,
             }
-            FormError {}
         }
     }
 }

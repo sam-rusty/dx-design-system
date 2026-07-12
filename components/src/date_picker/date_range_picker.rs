@@ -9,7 +9,7 @@ use crate::calendar::{
     CalendarState, format_date, format_date_range, format_header_date, parse_date,
     parse_date_range, today,
 };
-use crate::form::{FormError, FormField};
+use crate::form::{FormFieldFrame, use_field_binding};
 use crate::{Field, InputBase, Modal, ModalSize};
 
 const TAB_ACTIVE: &str = "flex-1 py-2 text-sm font-medium text-primary border-b-2 border-primary cursor-pointer text-center transition-colors";
@@ -25,9 +25,15 @@ enum RangeTab {
 #[component]
 pub fn DateRangePickerBase(
     #[props(default)] class: String,
-    #[props(default)] value: Option<ReadSignal<String>>,
-    #[props(default)] on_change: Option<EventHandler<String>>,
-    #[props(default)] disabled: bool,
+    /// Controlled wire value.
+    #[props(default)]
+    value: ReadSignal<Option<String>>,
+    /// Fired with the new wire value when a selection is confirmed.
+    #[props(default)]
+    on_value_change: Callback<String>,
+    /// Whether the picker is disabled.
+    #[props(default)]
+    disabled: ReadSignal<bool>,
     #[props(default)] min: Option<Signal<WireDate>>,
     #[props(default)] max: Option<Signal<WireDate>>,
     #[props(default)] is_open: Option<Signal<bool>>,
@@ -42,8 +48,7 @@ pub fn DateRangePickerBase(
     let input_start_read: ReadSignal<Option<String>> = use_memo(move || Some(input_start())).into();
     let input_end_read: ReadSignal<Option<String>> = use_memo(move || Some(input_end())).into();
 
-    let current_value: ReadSignal<String> =
-        value.unwrap_or_else(|| ReadSignal::from(use_signal(String::new)));
+    let current_value = use_memo(move || value().unwrap_or_default());
 
     let parsed_range = use_memo(move || parse_date_range(&current_value()));
 
@@ -126,11 +131,11 @@ pub fn DateRangePickerBase(
             button {
                 r#type: "button",
                 class: "{trigger_class}",
-                disabled: disabled,
+                disabled: disabled(),
                 "data-state": if is_open_val { "open" } else { "closed" },
                 onclick: move |ev| {
                     ev.stop_propagation();
-                    if disabled { return; }
+                    if disabled() { return; }
                     if let Some((s, e)) = *parsed_range.peek() {
                         staging_start.set(Some(s));
                         staging_end.set(Some(e));
@@ -257,9 +262,7 @@ pub fn DateRangePickerBase(
                                 let end = *staging_end.peek();
                                 if let (Some(s), Some(e)) = (start, end) {
                                     let formatted = format_date_range(&s, &e);
-                                    if let Some(cb) = on_change {
-                                        cb.call(formatted);
-                                    }
+                                    on_value_change.call(formatted);
                                 }
                                 is_open_sig.set(false);
                             },
@@ -271,39 +274,60 @@ pub fn DateRangePickerBase(
     }
 }
 
-#[component]
-pub fn DateRangePicker(
-    field: Field,
-    #[props(default)] class: String,
-    #[props(default)] min: Option<WireDate>,
-    #[props(default)] max: Option<WireDate>,
-    #[props(default)] disabled: Option<Signal<bool>>,
-) -> Element {
-    let label = field.label.to_string();
+/// Props for [`DateRangePicker`], the form-bound date-range picker.
+#[derive(Props, Clone, PartialEq)]
+pub struct DateRangePickerProps {
+    /// The bound form field.
+    #[props(into)]
+    pub field: Field,
+    /// Extra classes merged onto the field wrapper.
+    #[props(default)]
+    pub class: String,
+    /// Earliest selectable value.
+    #[props(default)]
+    pub min: Option<WireDate>,
+    /// Latest selectable value.
+    #[props(default)]
+    pub max: Option<WireDate>,
+    /// Whether the picker is disabled (OR-ed with the form's disabled state).
+    #[props(default)]
+    pub disabled: ReadSignal<bool>,
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+}
+
+/// Form-bound date-range picker with floating label and inline error.
+pub fn DateRangePicker(props: DateRangePickerProps) -> Element {
+    // Owned here (not inside the control) so the frame's floating label can
+    // float while the picker is open.
+    let open = use_signal(|| false);
     rsx! {
-        FormField { field,
-            DateRangePickerControl { label: label.to_string(), class, min, max, disabled }
-            FormError {}
+        FormFieldFrame {
+            field: props.field,
+            tooltip: props.tooltip,
+            class: props.class,
+            floated: ReadSignal::from(open),
+            DateRangePickerControl {
+                min: props.min,
+                max: props.max,
+                disabled: props.disabled,
+                open,
+            }
         }
     }
 }
 
 #[component]
 fn DateRangePickerControl(
-    label: String,
-    class: String,
     #[props(default)] min: Option<WireDate>,
     #[props(default)] max: Option<WireDate>,
-    #[props(default)] disabled: Option<Signal<bool>>,
+    #[props(default)] disabled: ReadSignal<bool>,
+    open: Signal<bool>,
 ) -> Element {
-    let is_open = use_signal(|| false);
-
-    let (field_name, form_ctx) = use_form_field();
-    let value_signal = form_value_signal(&field_name, form_ctx);
-    let on_change = form_on_change(&field_name, form_ctx);
-    let form_is_disabled = form_disabled(form_ctx);
-
-    let is_disabled = disabled.map(|d| d()).unwrap_or(false) || form_is_disabled();
+    let binding = use_field_binding();
+    let form_disabled = binding.disabled;
+    let is_disabled: ReadSignal<bool> = use_memo(move || disabled() || form_disabled()).into();
 
     let has_min = min.is_some();
     let has_max = max.is_some();
@@ -313,16 +337,13 @@ fn DateRangePickerControl(
     let max_opt = has_max.then_some(max_sig);
 
     rsx! {
-        div { class: "{merge(&[\"relative w-full mt-2\", &class])}",
-            DateRangePickerBase {
-                value: value_signal,
-                on_change: on_change,
-                disabled: is_disabled,
-                is_open: is_open,
-                min: min_opt,
-                max: max_opt,
-            }
-            FloatingLabel { label: label, is_open: is_open, data_name: "DateRangePickerLabel" }
+        DateRangePickerBase {
+            value: binding.controlled_value,
+            on_value_change: binding.on_commit,
+            disabled: is_disabled,
+            is_open: open,
+            min: min_opt,
+            max: max_opt,
         }
     }
 }

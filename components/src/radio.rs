@@ -3,7 +3,7 @@ use ds_utils::format::merge;
 use strum_macros::AsRefStr;
 
 use crate::Field;
-use crate::form::{FieldContext, FormContext, FormError, FormField, LabelHint};
+use crate::form::{FormError, FormField, LabelHint, use_field_binding};
 use crate::hooks::{FocusState, use_focus_control, use_focus_entry_disabled, use_focus_provider};
 use crate::label::Label;
 
@@ -34,29 +34,51 @@ struct RadioGroupCtx {
     options: &'static [(&'static str, &'static str)],
 }
 
-#[component]
-pub fn RadioGroup(
-    #[props(into)] field: Field,
-    #[props(default)] direction: RadioGroupDirection,
-    #[props(default)] class: String,
-    #[props(default)] options: &'static [(&'static str, &'static str)],
-    #[props(default)] tooltip: Option<Element>,
-    #[props(default)] children: Option<Element>,
-) -> Element {
-    let aria_label = field.label;
+/// Props for [`RadioGroup`], the form-bound radio group.
+#[derive(Props, Clone, PartialEq)]
+pub struct RadioGroupProps {
+    /// The bound form field.
+    #[props(into)]
+    pub field: Field,
+    /// Layout direction of the options.
+    #[props(default)]
+    pub direction: RadioGroupDirection,
+    /// Extra classes merged onto the group container.
+    #[props(default)]
+    pub class: String,
+    /// `(value, label)` pairs (e.g. a `FormOptions` derive's `OPTIONS`).
+    #[props(default)]
+    pub options: &'static [(&'static str, &'static str)],
+    /// Help tooltip rendered inline after the group label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+    /// Extra items rendered after the options.
+    #[props(default)]
+    pub children: Option<Element>,
+}
+
+/// Form-bound radio group with inline error.
+pub fn RadioGroup(props: RadioGroupProps) -> Element {
+    let aria_label = props.field.label;
     rsx! {
-        FormField { field,
-            RadioGroupBody { direction, class, options, aria_label, tooltip, children }
+        FormField { field: props.field,
+            RadioGroupControl {
+                direction: props.direction,
+                class: props.class,
+                options: props.options,
+                aria_label,
+                tooltip: props.tooltip,
+                children: props.children,
+            }
             FormError {}
         }
     }
 }
 
-/// Inner body — lives *inside* [`FormField`] so it can read the field's
-/// [`FieldContext`]/[`FormContext`], build the shared value memo, and provide
-/// the roving [`FocusState`] to its items.
+/// Form-context binding — lives *inside* `FormField` so it can read the field
+/// binding, build the shared value memo, and provide the roving focus state.
 #[component]
-fn RadioGroupBody(
+fn RadioGroupControl(
     direction: RadioGroupDirection,
     #[props(default)] class: String,
     options: &'static [(&'static str, &'static str)],
@@ -64,15 +86,9 @@ fn RadioGroupBody(
     #[props(default)] tooltip: Option<Element>,
     #[props(default)] children: Option<Element>,
 ) -> Element {
-    let field_ctx = use_context::<FieldContext>();
-    let form_ctx = use_context::<FormContext>();
-    let field_name = field_ctx.name.clone();
+    let binding = use_field_binding();
 
-    let selected = use_memo(move || {
-        form_ctx
-            .values_signal
-            .with(|v| v.get(&*field_name).cloned().unwrap_or_default())
-    });
+    let selected = binding.value;
     // Radio groups wrap on arrow nav.
     let focus = use_focus_provider(use_signal(|| true).into());
     use_context_provider(|| RadioGroupCtx {
@@ -115,21 +131,19 @@ fn RadioGroupItem(
     value: String,
     #[props(default)] class: String,
 ) -> Element {
-    let field_ctx = use_context::<FieldContext>();
-    let form_ctx = use_context::<FormContext>();
+    let binding = use_field_binding();
     let ctx = use_context::<RadioGroupCtx>();
-    let field_name = field_ctx.name.clone();
-    let is_disabled = form_ctx.disabled.map(|d| d()).unwrap_or(false);
+    let is_disabled = binding.disabled;
 
     // Register with roving focus + receive DOM focus when this index becomes active.
     let idx = use_signal(|| index);
-    use_focus_entry_disabled(ctx.focus, idx, move || is_disabled);
+    use_focus_entry_disabled(ctx.focus, idx, move || is_disabled());
     let on_mounted = use_focus_control(ctx.focus, idx);
 
-    let radio_id = format!("{}-{}", field_name, value);
+    let radio_id = format!("{}-{}", binding.name, value);
     let radio_id_label = radio_id.clone();
-    let name_str = String::from(&*field_name);
-    let aria_describedby = format!("{}-error", field_name);
+    let name_str = binding.id.clone();
+    let aria_describedby = binding.aria_describedby.clone();
 
     let is_checked = ctx.selected.with(|s| s == &value);
     let any_selected = ctx.selected.with(|s| !s.is_empty());
@@ -141,19 +155,8 @@ fn RadioGroupItem(
         "-1"
     };
 
-    let is_touched = form_ctx.touched_signal.with(|t| t.contains(&*field_name));
-    let has_error = form_ctx
-        .errors_signal
-        .with(|e| e.get(&*field_name).is_some_and(|err| err.is_some()));
-    let aria_invalid: Option<String> = (is_touched && has_error).then(|| "true".to_string());
-
-    let select = use_callback({
-        let field_name = field_name.clone();
-        move |val: String| {
-            form_ctx.set_value.read()(&field_name, val);
-            form_ctx.touch_field.read()(&field_name);
-        }
-    });
+    let aria_invalid = binding.aria_invalid();
+    let select = binding.on_commit;
 
     let wrapper_class = merge(&[
         "group/radio relative inline-flex items-center justify-center size-[18px] shrink-0 cursor-pointer select-none",
@@ -182,17 +185,17 @@ fn RadioGroupItem(
                 "aria-invalid": aria_invalid,
                 "aria-describedby": aria_describedby,
                 tabindex: tab_index,
-                disabled: is_disabled,
+                disabled: is_disabled(),
                 class: "{wrapper_class}",
                 onmounted: on_mounted,
                 onclick: move |ev| {
                     ev.stop_propagation();
-                    if !is_disabled {
+                    if !is_disabled() {
                         select.call(value_click.clone());
                     }
                 },
                 onkeydown: move |ev| {
-                    if is_disabled || options.is_empty() {
+                    if is_disabled() || options.is_empty() {
                         return;
                     }
                     let len = options.len();
@@ -222,27 +225,44 @@ fn RadioGroupItem(
     }
 }
 
+/// Props for [`Radio`], the standalone controlled radio button.
+#[derive(Props, Clone, PartialEq)]
+pub struct RadioProps {
+    /// Extra classes merged onto the radio button.
+    #[props(default)]
+    pub class: String,
+    /// Value reported through `on_select` when clicked.
+    #[props(default)]
+    pub value: Option<String>,
+    /// Whether the radio is disabled.
+    #[props(default)]
+    pub disabled: ReadSignal<bool>,
+    /// Whether the radio renders checked.
+    #[props(default)]
+    pub checked: bool,
+    /// Fired with `value` when the radio is clicked.
+    #[props(default)]
+    pub on_select: Callback<String>,
+}
+
 /// Standalone controlled radio button for non-form contexts that own their own
-/// selection state (e.g. the inline option pickers in `multi_search`).
-#[component]
-pub fn Radio(
-    #[props(default)] class: String,
-    #[props(default)] value: Option<String>,
-    #[props(default)] disabled: bool,
-    #[props(default)] checked: bool,
-    #[props(default)] on_select: Option<EventHandler<String>>,
-) -> Element {
+/// selection state (e.g. inline option pickers).
+pub fn Radio(props: RadioProps) -> Element {
     let wrapper_class = merge(&[
         "group/radio relative inline-flex items-center justify-center size-[18px] shrink-0 cursor-pointer select-none",
         "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
-        &class,
+        &props.class,
     ]);
-    let radio_value = value.unwrap_or_default();
-    let span_class = if checked {
+    let radio_value = props.value.clone().unwrap_or_default();
+    let span_class = if props.checked {
         "size-[18px] rounded-full border-[5px] border-primary transition-all duration-150"
     } else {
         "size-[18px] rounded-full border-2 border-muted-foreground/40 transition-all duration-150"
     };
+
+    let checked = props.checked;
+    let disabled = props.disabled;
+    let on_select = props.on_select;
 
     rsx! {
         button {
@@ -251,12 +271,10 @@ pub fn Radio(
             role: "radio",
             "aria-checked": "{checked}",
             class: "{wrapper_class}",
-            disabled,
+            disabled: disabled(),
             onclick: move |ev: MouseEvent| {
                 ev.stop_propagation();
-                if let Some(cb) = &on_select {
-                    cb.call(radio_value.clone());
-                }
+                on_select.call(radio_value.clone());
             },
             span { class: "{span_class}" }
         }

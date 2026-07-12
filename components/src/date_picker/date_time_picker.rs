@@ -6,7 +6,7 @@ use time::{Date, PrimitiveDateTime, Time};
 use super::panel::{CalendarPanel, PickerFooter, SelectionState};
 use super::shared::*;
 use crate::calendar::{CalendarState, format_header_date, parse_datetime, today};
-use crate::form::{FormError, FormField};
+use crate::form::{FormFieldFrame, use_field_binding};
 use crate::icon::{Icon, IconName};
 use crate::{Field, InputBase, Modal, ModalSize};
 
@@ -66,9 +66,15 @@ fn format_display_datetime(date: &Date, hour: u32, minute: u32) -> String {
 #[component]
 pub fn DateTimePickerBase(
     #[props(default)] class: String,
-    #[props(default)] value: Option<ReadSignal<String>>,
-    #[props(default)] on_change: Option<EventHandler<String>>,
-    #[props(default)] disabled: bool,
+    /// Controlled wire value.
+    #[props(default)]
+    value: ReadSignal<Option<String>>,
+    /// Fired with the new wire value when a selection is confirmed.
+    #[props(default)]
+    on_value_change: Callback<String>,
+    /// Whether the picker is disabled.
+    #[props(default)]
+    disabled: ReadSignal<bool>,
     #[props(default)] min: Option<Signal<WireDateTime>>,
     #[props(default)] max: Option<Signal<WireDateTime>>,
     #[props(default)] is_open: Option<Signal<bool>>,
@@ -81,8 +87,7 @@ pub fn DateTimePickerBase(
     let input_value_read: ReadSignal<Option<String>> = use_memo(move || Some(input_value())).into();
     let mut step = use_signal(|| PickerStep::Date);
 
-    let current_value: ReadSignal<String> =
-        value.unwrap_or_else(|| ReadSignal::from(use_signal(String::new)));
+    let current_value = use_memo(move || value().unwrap_or_default());
 
     let parsed = use_memo(move || parse_datetime(&current_value()));
 
@@ -146,11 +151,11 @@ pub fn DateTimePickerBase(
             button {
                 r#type: "button",
                 class: "{trigger_class}",
-                disabled: disabled,
+                disabled: disabled(),
                 "data-state": if is_open_val { "open" } else { "closed" },
                 onclick: move |ev| {
                     ev.stop_propagation();
-                    if disabled { return; }
+                    if disabled() { return; }
                     if let Some((d, h, m)) = *parsed.peek() {
                         staging_date.set(Some(d));
                         staging_hour.set(h);
@@ -246,9 +251,7 @@ pub fn DateTimePickerBase(
                                                 let h = *staging_hour.peek();
                                                 let m = *staging_minute.peek();
                                                 let formatted = format_wire_datetime(date, h, m);
-                                                if let Some(cb) = on_change {
-                                                    cb.call(formatted);
-                                                }
+                                                on_value_change.call(formatted);
                                             }
                                             is_open_sig.set(false);
                                         },
@@ -350,39 +353,60 @@ fn TimeSpinner(hour: Signal<u32>, minute: Signal<u32>) -> Element {
     }
 }
 
-#[component]
-pub fn DateTimePicker(
-    field: Field,
-    #[props(default)] class: String,
-    #[props(default)] min: Option<WireDateTime>,
-    #[props(default)] max: Option<WireDateTime>,
-    #[props(default)] disabled: Option<Signal<bool>>,
-) -> Element {
-    let label = field.label.to_string();
+/// Props for [`DateTimePicker`], the form-bound date-time picker.
+#[derive(Props, Clone, PartialEq)]
+pub struct DateTimePickerProps {
+    /// The bound form field.
+    #[props(into)]
+    pub field: Field,
+    /// Extra classes merged onto the field wrapper.
+    #[props(default)]
+    pub class: String,
+    /// Earliest selectable value.
+    #[props(default)]
+    pub min: Option<WireDateTime>,
+    /// Latest selectable value.
+    #[props(default)]
+    pub max: Option<WireDateTime>,
+    /// Whether the picker is disabled (OR-ed with the form's disabled state).
+    #[props(default)]
+    pub disabled: ReadSignal<bool>,
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+}
+
+/// Form-bound date-time picker with floating label and inline error.
+pub fn DateTimePicker(props: DateTimePickerProps) -> Element {
+    // Owned here (not inside the control) so the frame's floating label can
+    // float while the picker is open.
+    let open = use_signal(|| false);
     rsx! {
-        FormField { field,
-            DateTimePickerControl { label, class, min, max, disabled }
-            FormError {}
+        FormFieldFrame {
+            field: props.field,
+            tooltip: props.tooltip,
+            class: props.class,
+            floated: ReadSignal::from(open),
+            DateTimePickerControl {
+                min: props.min,
+                max: props.max,
+                disabled: props.disabled,
+                open,
+            }
         }
     }
 }
 
 #[component]
 fn DateTimePickerControl(
-    label: String,
-    class: String,
     #[props(default)] min: Option<WireDateTime>,
     #[props(default)] max: Option<WireDateTime>,
-    #[props(default)] disabled: Option<Signal<bool>>,
+    #[props(default)] disabled: ReadSignal<bool>,
+    open: Signal<bool>,
 ) -> Element {
-    let is_open = use_signal(|| false);
-
-    let (field_name, form_ctx) = use_form_field();
-    let value_signal = form_value_signal(&field_name, form_ctx);
-    let on_change = form_on_change(&field_name, form_ctx);
-    let form_is_disabled = form_disabled(form_ctx);
-
-    let is_disabled = disabled.map(|d| d()).unwrap_or(false) || form_is_disabled();
+    let binding = use_field_binding();
+    let form_disabled = binding.disabled;
+    let is_disabled: ReadSignal<bool> = use_memo(move || disabled() || form_disabled()).into();
 
     let has_min = min.is_some();
     let has_max = max.is_some();
@@ -392,16 +416,13 @@ fn DateTimePickerControl(
     let max_opt = has_max.then_some(max_sig);
 
     rsx! {
-        div { class: "{merge(&[\"relative w-full mt-2\", &class])}",
-            DateTimePickerBase {
-                value: value_signal,
-                on_change: on_change,
-                disabled: is_disabled,
-                is_open: is_open,
-                min: min_opt,
-                max: max_opt,
-            }
-            FloatingLabel { label: label, is_open: is_open, data_name: "DateTimePickerLabel" }
+        DateTimePickerBase {
+            value: binding.controlled_value,
+            on_value_change: binding.on_commit,
+            disabled: is_disabled,
+            is_open: open,
+            min: min_opt,
+            max: max_opt,
         }
     }
 }

@@ -1,7 +1,6 @@
 use dioxus::prelude::*;
 use time::Date;
 
-use crate::form::{FieldContext, FormContext};
 use crate::icon::{Icon, IconName};
 
 pub const TRIGGER_CLASS: &str = "peer flex w-full h-12 min-w-0 items-center justify-between rounded-lg border border-input bg-transparent px-4 py-2 text-sm text-foreground transition-all duration-200 outline-none cursor-pointer focus:border-primary focus:ring-1 focus:ring-primary disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20";
@@ -58,87 +57,6 @@ pub fn PickerHeader(title: &'static str, children: Element) -> Element {
             div { class: "flex items-center justify-between",
                 {children}
             }
-        }
-    }
-}
-
-pub fn use_form_field() -> (String, FormContext) {
-    let field_name = use_context::<FieldContext>().name;
-    let form_ctx = use_context::<FormContext>();
-    (String::from(&*field_name), form_ctx)
-}
-
-pub fn form_value_signal(field_name: &str, form_ctx: FormContext) -> ReadSignal<String> {
-    let field_name = field_name.to_string();
-    use_memo(move || {
-        form_ctx
-            .values_signal
-            .read()
-            .get(&*field_name)
-            .cloned()
-            .unwrap_or_default()
-    })
-    .into()
-}
-
-pub fn form_on_change(field_name: &str, form_ctx: FormContext) -> EventHandler<String> {
-    let field_name = field_name.to_string();
-    EventHandler::new(move |val: String| {
-        form_ctx.set_value.read()(&field_name, val.clone());
-        form_ctx.touch_field.read()(&field_name);
-    })
-}
-
-pub fn form_disabled(form_ctx: FormContext) -> ReadSignal<bool> {
-    use_memo(move || form_ctx.disabled.map(|d| d()).unwrap_or(false)).into()
-}
-
-#[component]
-pub fn FloatingLabel(
-    label: String,
-    is_open: ReadSignal<bool>,
-    #[props(default)] data_name: Option<&'static str>,
-) -> Element {
-    let (field_name, form_ctx) = use_form_field();
-
-    let has_value = {
-        let field_name = field_name.clone();
-        use_memo(move || {
-            form_ctx
-                .values_signal
-                .read()
-                .get(&*field_name)
-                .is_some_and(|s| !s.is_empty())
-        })
-    };
-
-    let is_floated = use_memo(move || has_value() || is_open());
-
-    let label_class = use_memo(move || {
-        let base = "absolute start-3 z-10 pointer-events-none bg-card px-1 text-muted-foreground transition-all duration-200 origin-[0]";
-        if is_floated() {
-            format!(
-                "{} {} {}",
-                base,
-                "top-0 -translate-y-1/2 scale-75 text-sm font-medium",
-                if is_open() { "text-primary" } else { "" }
-            )
-        } else {
-            format!(
-                "{} {}",
-                base, "top-1/2 -translate-y-1/2 scale-100 text-sm font-normal"
-            )
-        }
-    });
-
-    let data_name = data_name.unwrap_or("PickerLabel");
-
-    rsx! {
-        label {
-            "data-name": "{data_name}",
-            class: "{label_class()}",
-            r#for: "{field_name}",
-            "{label}"
         }
     }
 }

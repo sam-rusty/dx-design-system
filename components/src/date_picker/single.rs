@@ -8,17 +8,31 @@ use super::panel::{CalendarPanel, SelectionState};
 use super::shared::{format_display_date, *};
 use crate::calendar::{CalendarState, format_header_date, parse_date, today};
 use crate::field_name::Field;
-use crate::form::{FormError, FormField};
+use crate::form::{FormFieldFrame, use_field_binding};
 
 #[component]
 pub fn DatePickerBase(
-    #[props(default)] class: String,
-    #[props(default)] value: Option<ReadSignal<String>>,
-    #[props(default)] on_change: Option<EventHandler<String>>,
-    #[props(default)] disabled: bool,
-    #[props(default)] min: Option<Signal<WireDate>>,
-    #[props(default)] max: Option<Signal<WireDate>>,
-    #[props(default)] is_open: Option<Signal<bool>>,
+    /// Extra classes merged onto the trigger.
+    #[props(default)]
+    class: String,
+    /// Controlled wire-date value (`YYYY-MM-DD`).
+    #[props(default)]
+    value: ReadSignal<Option<String>>,
+    /// Fired with the new wire-date value when a date is picked.
+    #[props(default)]
+    on_value_change: Callback<String>,
+    /// Whether the picker is disabled.
+    #[props(default)]
+    disabled: ReadSignal<bool>,
+    /// Earliest selectable date.
+    #[props(default)]
+    min: Option<Signal<WireDate>>,
+    /// Latest selectable date.
+    #[props(default)]
+    max: Option<Signal<WireDate>>,
+    /// Shared open state (owned by a form wrapper for its floating label).
+    #[props(default)]
+    is_open: Option<Signal<bool>>,
 ) -> Element {
     let default_is_open = use_signal(|| false);
     let mut is_open_sig = is_open.unwrap_or(default_is_open);
@@ -27,9 +41,7 @@ pub fn DatePickerBase(
     let mut input_value = use_signal(String::new);
     let input_value_read: ReadSignal<Option<String>> = use_memo(move || Some(input_value())).into();
 
-    let current_value = value.unwrap_or_else(|| use_signal(String::new).into());
-
-    let selected_date = use_memo(move || parse_date(&current_value()));
+    let selected_date = use_memo(move || parse_date(&value().unwrap_or_default()));
 
     // The selected date is derived from the form value — expose it directly as a
     // read view instead of mirroring it into a shadow signal via `use_effect`.
@@ -55,7 +67,7 @@ pub fn DatePickerBase(
     };
 
     let display_value = use_memo(move || {
-        let val = current_value();
+        let val = value().unwrap_or_default();
         if val.is_empty() {
             String::new()
         } else {
@@ -76,11 +88,11 @@ pub fn DatePickerBase(
             button {
                 r#type: "button",
                 class: "{trigger_class}",
-                disabled: disabled,
+                disabled: disabled(),
                 "data-state": if is_open_val { "open" } else { "closed" },
                 onclick: move |ev| {
                     ev.stop_propagation();
-                    if disabled { return; }
+                    if disabled() { return; }
                     let nav_to = (*selected_date.peek()).unwrap_or_else(today);
                     cal_state.navigate_to(&nav_to);
                     input_mode.set(false);
@@ -110,9 +122,7 @@ pub fn DatePickerBase(
                                 } else if let Some(d) = parse_date(&input_value.peek())
                                     && !is_date_disabled(d) {
                                         let formatted = WireDate::from(d).to_string();
-                                        if let Some(cb) = on_change {
-                                            cb.call(formatted);
-                                        }
+                                        on_value_change.call(formatted);
                                         cal_state.navigate_to(&d);
                                     }
                                 input_mode.set(entering);
@@ -135,9 +145,7 @@ pub fn DatePickerBase(
                                 selection: selection,
                                 on_day_click: move |date: Date| {
                                     let formatted = WireDate::from(date).to_string();
-                                    if let Some(cb) = on_change {
-                                        cb.call(formatted);
-                                    }
+                                    on_value_change.call(formatted);
                                     is_open_sig.set(false);
                                 },
                                 min_date: min_date(),
@@ -151,40 +159,60 @@ pub fn DatePickerBase(
     }
 }
 
-#[component]
-pub fn DatePicker(
-    #[props(into)] field: Field,
-    #[props(default)] class: String,
-    #[props(default)] min: Option<WireDate>,
-    #[props(default)] max: Option<WireDate>,
-    #[props(default)] disabled: Option<Signal<bool>>,
-) -> Element {
-    let label = field.label.to_string();
+/// Props for [`DatePicker`], the form-bound date picker.
+#[derive(Props, Clone, PartialEq)]
+pub struct DatePickerProps {
+    /// The bound form field.
+    #[props(into)]
+    pub field: Field,
+    /// Extra classes merged onto the field wrapper.
+    #[props(default)]
+    pub class: String,
+    /// Earliest selectable date.
+    #[props(default)]
+    pub min: Option<WireDate>,
+    /// Latest selectable date.
+    #[props(default)]
+    pub max: Option<WireDate>,
+    /// Whether the picker is disabled (OR-ed with the form's disabled state).
+    #[props(default)]
+    pub disabled: ReadSignal<bool>,
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+}
 
+/// Form-bound date picker with floating label and inline error.
+pub fn DatePicker(props: DatePickerProps) -> Element {
+    // Owned here (not inside the control) so the frame's floating label can
+    // float while the picker is open.
+    let open = use_signal(|| false);
     rsx! {
-        FormField { field,
-            DatePickerControl { label, class, min, max, disabled }
-            FormError {}
+        FormFieldFrame {
+            field: props.field,
+            tooltip: props.tooltip,
+            class: props.class,
+            floated: ReadSignal::from(open),
+            DatePickerControl {
+                min: props.min,
+                max: props.max,
+                disabled: props.disabled,
+                open,
+            }
         }
     }
 }
 
 #[component]
 fn DatePickerControl(
-    label: String,
-    class: String,
     #[props(default)] min: Option<WireDate>,
     #[props(default)] max: Option<WireDate>,
-    #[props(default)] disabled: Option<Signal<bool>>,
+    #[props(default)] disabled: ReadSignal<bool>,
+    open: Signal<bool>,
 ) -> Element {
-    let is_open = use_signal(|| false);
-
-    let (field_name, form_ctx) = use_form_field();
-    let value_signal = form_value_signal(&field_name, form_ctx);
-    let on_change = form_on_change(&field_name, form_ctx);
-    let form_is_disabled = form_disabled(form_ctx);
-
-    let is_disabled = disabled.map(|d| d()).unwrap_or(false) || form_is_disabled();
+    let binding = use_field_binding();
+    let form_disabled = binding.disabled;
+    let is_disabled: ReadSignal<bool> = use_memo(move || disabled() || form_disabled()).into();
 
     let has_min = min.is_some();
     let has_max = max.is_some();
@@ -194,16 +222,13 @@ fn DatePickerControl(
     let max_opt = has_max.then_some(max_sig);
 
     rsx! {
-        div { class: "{merge(&[\"relative w-full mt-2\", &class])}",
-            DatePickerBase {
-                value: value_signal,
-                on_change: on_change,
-                disabled: is_disabled,
-                is_open: is_open,
-                min: min_opt,
-                max: max_opt,
-            }
-            FloatingLabel { label: label, is_open: is_open, data_name: "DatePickerLabel" }
+        DatePickerBase {
+            value: binding.controlled_value,
+            on_value_change: binding.on_commit,
+            disabled: is_disabled,
+            is_open: open,
+            min: min_opt,
+            max: max_opt,
         }
     }
 }

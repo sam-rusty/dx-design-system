@@ -2,9 +2,10 @@ use dioxus::prelude::*;
 use ds_utils::classes;
 
 use crate::field_name::Field;
-use crate::form::{FieldActions, FieldContext, FormContext, FormError, FormField, LabelHint};
+use crate::form::{FormFieldFrame, use_field_binding};
 use crate::hooks::{use_escape_listener, use_outside_dismiss, use_unique_id};
 use crate::icon::{Icon, IconName};
+use crate::input::FieldSize;
 
 fn parse_multi_value(raw: &str) -> Vec<String> {
     if raw.is_empty() {
@@ -189,22 +190,24 @@ impl SelectContext {
 /// when an option is picked.
 pub fn use_select_contexts(
     value: ReadSignal<String>,
-    on_change: EventHandler<String>,
+    on_change: Callback<String>,
     dynamic: bool,
     limit: usize,
     multiple: bool,
 ) {
-    use_select_contexts_inner(value, Some(on_change), dynamic, limit, multiple);
+    use_select_contexts_inner(value, Some(on_change), dynamic, limit, multiple, None);
 }
 
 fn use_select_contexts_inner(
     value: ReadSignal<String>,
-    on_change: Option<EventHandler<String>>,
+    on_change: Option<Callback<String>>,
     dynamic: bool,
     limit: usize,
     multiple: bool,
+    open: Option<Signal<bool>>,
 ) -> SelectContext {
-    let mut is_open = use_signal(|| false);
+    let default_open = use_signal(|| false);
+    let mut is_open = open.unwrap_or(default_open);
     let mut search_query = use_signal(String::new);
     let options = use_signal(Vec::<OptionEntry>::new);
     let mut active = use_signal(|| None::<usize>);
@@ -355,16 +358,39 @@ fn use_select_contexts_inner(
 
 #[component]
 pub fn SelectBase(
-    #[props(default)] class: String,
-    #[props(default)] disabled: bool,
-    #[props(default)] searchable: bool,
-    #[props(default)] multiple: bool,
-    #[props(default)] dynamic: bool,
-    #[props(default)] limit: usize,
-    #[props(default)] children: Option<Element>,
-    #[props(default)] aria_describedby: Option<String>,
-    #[props(default)] aria_invalid: Option<String>,
-    #[props(default)] aria_label: Option<String>,
+    /// Extra classes merged onto the trigger.
+    #[props(default)]
+    class: String,
+    /// Whether the select is disabled.
+    #[props(default)]
+    disabled: ReadSignal<bool>,
+    /// Show a search input inside the trigger.
+    #[props(default)]
+    searchable: bool,
+    /// Allow multiple selections (tags).
+    #[props(default)]
+    multiple: bool,
+    /// Options are provided dynamically (skip client-side filtering).
+    #[props(default)]
+    dynamic: bool,
+    /// Cap on visible options (0 = unlimited).
+    #[props(default)]
+    limit: usize,
+    /// Visual size (shared `FieldSize` scale).
+    #[props(default)]
+    size: FieldSize,
+    /// `SelectOption` children.
+    #[props(default)]
+    children: Option<Element>,
+    /// `aria-describedby` target (the field's error element id).
+    #[props(default)]
+    aria_describedby: Option<String>,
+    /// `aria-invalid` value (form bindings set `"true"` on validation failure).
+    #[props(default)]
+    aria_invalid: Option<String>,
+    /// Accessible label for the combobox.
+    #[props(default)]
+    aria_label: Option<String>,
 ) -> Element {
     let ctx = use_context::<SelectContext>();
 
@@ -468,30 +494,38 @@ pub fn SelectBase(
         _ => {}
     });
 
+    // Size tokens on the shared FieldSize scale; every class is a literal so
+    // the Tailwind scanner still sees each one.
+    let (sz_fixed, sz_pad, sz_text, sz_multi) = match size {
+        FieldSize::Default => ("h-12", "px-4 py-2", "text-sm", "h-auto min-h-12"),
+        FieldSize::Sm => ("h-8", "px-3 py-1", "text-xs", "h-auto min-h-8"),
+        FieldSize::Xs => ("h-7", "px-2 py-0.5", "text-xs", "h-auto min-h-7"),
+    };
+
     let trigger_class = if show_search {
         classes!(
-            "flex w-full h-12 min-w-0 items-center rounded-lg border border-input bg-transparent px-4 pe-10 py-2 text-sm text-foreground transition-all duration-200 outline-none cursor-text",
+            "flex w-full min-w-0 items-center rounded-lg border border-input bg-transparent pe-10 text-foreground transition-all duration-200 outline-none cursor-text",
+            sz_fixed,
+            sz_pad,
+            sz_text,
             "focus-within:border-primary focus-within:ring-1 focus-within:ring-primary",
             "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-muted/50",
             "aria-invalid:border-destructive aria-invalid:ring-destructive/20 focus-within:aria-invalid:border-destructive focus-within:aria-invalid:ring-1",
-            if is_multiple {
-                "h-auto min-h-12 flex-wrap gap-1"
-            } else {
-                ""
-            },
+            if is_multiple { sz_multi } else { "" },
+            if is_multiple { "flex-wrap gap-1" } else { "" },
             &class,
         )
     } else {
         classes!(
-            "flex w-full h-12 min-w-0 items-center justify-between rounded-lg border border-input bg-transparent px-4 py-2 text-sm text-foreground transition-all duration-200 outline-none cursor-pointer",
+            "flex w-full min-w-0 items-center justify-between rounded-lg border border-input bg-transparent text-foreground transition-all duration-200 outline-none cursor-pointer",
+            sz_fixed,
+            sz_pad,
+            sz_text,
             "focus:border-primary focus:ring-1 focus:ring-primary",
             "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-muted/50",
             "aria-invalid:border-destructive aria-invalid:ring-destructive/20 focus:aria-invalid:border-destructive focus:aria-invalid:ring-1",
-            if is_multiple {
-                "h-auto min-h-12 flex-wrap gap-1 pe-10"
-            } else {
-                ""
-            },
+            if is_multiple { sz_multi } else { "" },
+            if is_multiple { "flex-wrap gap-1 pe-10" } else { "" },
             &class,
         )
     };
@@ -535,7 +569,7 @@ pub fn SelectBase(
                                         class: "inline-flex items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground cursor-pointer size-4",
                                         onclick: move |ev| {
                                             ev.stop_propagation();
-                                            if !disabled {
+                                            if !disabled() {
                                                 ctx.on_select.call(remove_val.clone());
                                             }
                                         },
@@ -554,7 +588,7 @@ pub fn SelectBase(
                         "aria-controls": "{listbox_id}",
                         "aria-activedescendant": active_descendant.clone(),
                         class: "flex-1 min-w-[60px] bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none",
-                        disabled,
+                        disabled: disabled(),
                         "aria-label": aria_label.clone(),
                         value: "{search_val}",
                         oninput: move |ev| {
@@ -564,7 +598,7 @@ pub fn SelectBase(
                             *search_query.write() = ev.value();
                         },
                         onfocus: move |_| {
-                            if !disabled && !is_open() {
+                            if !disabled() && !is_open() {
                                 *is_open.write() = true;
                                 *search_query.write() = String::new();
                             }
@@ -586,7 +620,7 @@ pub fn SelectBase(
                     "aria-controls": "{listbox_id}",
                     "aria-activedescendant": active_descendant.clone(),
                     class: "{trigger_class}",
-                    disabled,
+                    disabled: disabled(),
                     "data-state": if is_open_val { "open" } else { "closed" },
                     "aria-describedby": aria_describedby,
                     "aria-invalid": aria_invalid,
@@ -599,7 +633,7 @@ pub fn SelectBase(
                         *search_query.write() = ev.value();
                     },
                     onfocus: move |_| {
-                        if !disabled && !is_open() {
+                        if !disabled() && !is_open() {
                             *is_open.write() = true;
                             *search_query.write() = String::new();
                         }
@@ -619,14 +653,14 @@ pub fn SelectBase(
                     "aria-controls": "{listbox_id}",
                     "aria-activedescendant": active_descendant.clone(),
                     class: "{trigger_class}",
-                    disabled,
+                    disabled: disabled(),
                     "data-state": if is_open_val { "open" } else { "closed" },
                     "aria-describedby": aria_describedby,
                     "aria-invalid": aria_invalid,
                     "aria-label": aria_label.clone(),
                     onclick: move |ev| {
                         ev.stop_propagation();
-                        if !disabled {
+                        if !disabled() {
                             *is_open.write() ^= true;
                         }
                     },
@@ -657,7 +691,7 @@ pub fn SelectBase(
                                                         onclick: move |ev| {
                                                             ev.stop_propagation();
                                                             ev.prevent_default();
-                                                            if !disabled {
+                                                            if !disabled() {
                                                                 ctx.on_select.call(remove_val.clone());
                                                             }
                                                         },
@@ -667,7 +701,7 @@ pub fn SelectBase(
                                                             if is_activate {
                                                                 ev.stop_propagation();
                                                                 ev.prevent_default();
-                                                                if !disabled {
+                                                                if !disabled() {
                                                                     ctx.on_select.call(remove_key.clone());
                                                                 }
                                                             }
@@ -696,14 +730,14 @@ pub fn SelectBase(
                     "aria-controls": "{listbox_id}",
                     "aria-activedescendant": active_descendant.clone(),
                     class: "{trigger_class}",
-                    disabled,
+                    disabled: disabled(),
                     "data-state": if is_open_val { "open" } else { "closed" },
                     "aria-describedby": aria_describedby,
                     "aria-invalid": aria_invalid,
                     "aria-label": aria_label.clone(),
                     onclick: move |ev| {
                         ev.stop_propagation();
-                        if !disabled {
+                        if !disabled() {
                             *is_open.write() ^= true;
                         }
                     },
@@ -812,173 +846,124 @@ pub fn SelectOption(value: String, label: String, #[props(default)] class: Strin
 }
 
 // ---------------------------------------------------------------------------
-// <SelectFormControl> — form-aware wrapper
+// <SelectControl> — form-context binding for <SelectBase>
 // ---------------------------------------------------------------------------
 
 #[component]
-pub(crate) fn SelectFormControl(
+pub(crate) fn SelectControl(
     #[props(default)] class: String,
     #[props(default)] searchable: bool,
     #[props(default)] multiple: bool,
     #[props(default)] limit: usize,
     #[props(default)] dynamic: bool,
-    #[props(default)] label: String,
-    #[props(default)] tooltip: Option<Element>,
+    #[props(default)] size: FieldSize,
+    /// Shared open state so the frame's floating label can track it.
+    open: Signal<bool>,
     #[props(default)] aria_label: Option<String>,
     #[props(default)] children: Option<Element>,
 ) -> Element {
-    let field_ctx = use_context::<FieldContext>();
-    let field_name = field_ctx.name.clone();
-    let form_ctx = use_context::<FormContext>();
-    let is_disabled = form_ctx.disabled.map(|d| d()).unwrap_or(false);
-
-    let aria_describedby = format!("{}-error", field_name);
-
-    let selected_value: ReadSignal<String> = {
-        let fn_clone = field_name.clone();
-        use_memo(move || {
-            form_ctx
-                .values_signal
-                .with(|v| v.get(&*fn_clone).cloned().unwrap_or_default())
-        })
-        .into()
-    };
+    let binding = use_field_binding();
 
     // Create contexts BEFORE evaluating children so SelectOption can find them.
     use_select_contexts_inner(
-        selected_value,
-        Some(EventHandler::new({
-            let field_name = field_name.clone();
-            move |val: String| {
-                form_ctx.set_value.read()(&field_name, val);
-                form_ctx.touch_field.read()(&field_name);
-            }
-        })),
+        binding.value.into(),
+        Some(binding.on_commit),
         dynamic,
         limit,
         multiple,
+        Some(open),
     );
-
-    let is_touched = form_ctx.touched_signal.with(|t| t.contains(&*field_name));
-    let has_error = form_ctx
-        .errors_signal
-        .with(|e| e.get(&*field_name).is_some_and(|err| err.is_some()));
-    let aria_invalid = if is_touched && has_error {
-        Some("true".to_string())
-    } else {
-        None
-    };
 
     rsx! {
         SelectBase {
             class,
-            disabled: is_disabled,
+            disabled: ReadSignal::from(binding.disabled),
             searchable,
             multiple,
             dynamic,
-            aria_describedby,
-            aria_invalid,
+            size,
+            aria_describedby: binding.aria_describedby.clone(),
+            aria_invalid: binding.aria_invalid(),
             aria_label,
             {children}
         }
-        if !label.is_empty() {
-            SelectItemLabel { label, tooltip }
-        }
     }
 }
 
 // ---------------------------------------------------------------------------
-// <Select> — static convenience (FormField + SelectFormControl + label + error)
+// <Select> — form-bound convenience (frame + SelectControl)
 // ---------------------------------------------------------------------------
 
-#[component]
-pub fn Select(
-    #[props(into)] field: Field,
-    #[props(default)] class: String,
-    #[props(default)] searchable: bool,
-    #[props(default)] multiple: bool,
-    #[props(default)] limit: usize,
-    #[props(default)] copyable: bool,
-    #[props(default)] clearable: bool,
-    #[props(default)] options: &'static [(&'static str, &'static str)],
-    #[props(default)] tooltip: Option<Element>,
-    #[props(default)] children: Option<Element>,
-) -> Element {
-    let has_actions = copyable || clearable;
-    let field_label = field.label;
-    let label = field_label.to_string();
-    rsx! {
-        FormField { field,
-            div { class: classes!("relative w-full mt-2", & class),
-                SelectFormControl {
-                    searchable,
-                    multiple,
-                    limit,
-                    label,
-                    tooltip,
-                    aria_label: field_label.to_string(),
-                    for (value , opt_label) in options.iter() {
-                        SelectOption {
-                            key: "{value}",
-                            value: value.to_string(),
-                            label: opt_label.to_string(),
-                        }
-                    }
-                    if let Some(c) = children {
-                        {c}
-                    }
-                }
-                if has_actions {
-                    FieldActions { copyable, clearable, class: "end-9" }
-                }
-            }
-            FormError {}
-        }
-    }
+/// Props for [`Select`], the form-bound select.
+#[derive(Props, Clone, PartialEq)]
+pub struct SelectProps {
+    /// The bound form field.
+    #[props(into)]
+    pub field: Field,
+    /// Extra classes merged onto the field wrapper.
+    #[props(default)]
+    pub class: String,
+    /// Show a search input inside the trigger.
+    #[props(default)]
+    pub searchable: bool,
+    /// Allow multiple selections (tags).
+    #[props(default)]
+    pub multiple: bool,
+    /// Cap on visible options (0 = unlimited).
+    #[props(default)]
+    pub limit: usize,
+    /// Show the copy-to-clipboard action.
+    #[props(default)]
+    pub copyable: bool,
+    /// Show the clear action.
+    #[props(default)]
+    pub clearable: bool,
+    /// Visual size (shared [`FieldSize`] scale).
+    #[props(default)]
+    pub size: FieldSize,
+    /// `(value, label)` pairs (e.g. a `FormOptions` derive's `OPTIONS`).
+    #[props(default)]
+    pub options: &'static [(&'static str, &'static str)],
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+    /// Extra `SelectOption` children rendered after `options`.
+    #[props(default)]
+    pub children: Option<Element>,
 }
 
-// ---------------------------------------------------------------------------
-// <SelectItemLabel> — floating label (signal-driven, no peer hacks)
-// ---------------------------------------------------------------------------
-
-#[component]
-fn SelectItemLabel(label: String, #[props(default)] tooltip: Option<Element>) -> Element {
-    let field_ctx = use_context::<FieldContext>();
-    let field_name = field_ctx.name.clone();
-    let form_ctx = use_context::<FormContext>();
-    let select_ctx = use_context::<SelectContext>();
-
-    let has_value = form_ctx
-        .values_signal
-        .with(|v| v.get(&*field_name).is_some_and(|s| !s.is_empty()));
-
-    let is_open = (select_ctx.is_open)();
-    let is_floated = has_value || is_open;
-
-    let base = "absolute start-3 z-10 pointer-events-none bg-card px-1 text-muted-foreground transition-all duration-200 origin-[0]";
-    let label_class = if is_floated {
-        let open_text = if is_open { "text-primary" } else { "" };
-        format!(
-            "{} {} {}",
-            base, "top-0 -translate-y-1/2 scale-75 text-sm font-medium", open_text
-        )
-    } else {
-        format!(
-            "{} {}",
-            base, "top-1/2 -translate-y-1/2 scale-100 text-sm font-normal"
-        )
-    };
-
-    let for_attr = String::from(&*field_name);
-
+/// Form-bound select with floating label and inline error.
+pub fn Select(props: SelectProps) -> Element {
+    let field_label = props.field.label;
+    // Owned here (not inside the control) so the frame's floating label can
+    // float while the dropdown is open.
+    let open = use_signal(|| false);
     rsx! {
-        label {
-            "data-name": "SelectLabel",
-            class: "{label_class} inline-flex items-center gap-1.5",
-            r#for: "{for_attr}",
-            "{label}"
-            if let Some(t) = tooltip {
-                LabelHint { tooltip: t }
+        FormFieldFrame {
+            field: props.field,
+            tooltip: props.tooltip,
+            copyable: props.copyable,
+            clearable: props.clearable,
+            class: props.class,
+            floated: ReadSignal::from(open),
+            actions_class: "end-9",
+            SelectControl {
+                searchable: props.searchable,
+                multiple: props.multiple,
+                limit: props.limit,
+                size: props.size,
+                open,
+                aria_label: field_label.to_string(),
+                for (value , opt_label) in props.options.iter() {
+                    SelectOption {
+                        key: "{value}",
+                        value: value.to_string(),
+                        label: opt_label.to_string(),
+                    }
+                }
+                if let Some(c) = props.children {
+                    {c}
+                }
             }
         }
     }

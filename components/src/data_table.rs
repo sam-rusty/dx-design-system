@@ -576,8 +576,8 @@ where
                 rsx! {
                     div { class: "flex items-center justify-center w-6 shrink-0",
                         CheckboxBase {
-                            checked: checked,
-                            on_change: move |_: bool| {
+                            checked: Some(checked),
+                            on_checked_change: move |_: bool| {
                                 s.toggle(row_id);
                             },
                         }
@@ -688,8 +688,8 @@ where
             rsx! {
                 div { class: "flex items-center justify-center w-6 shrink-0",
                     CheckboxBase {
-                        checked: is_checked,
-                        on_change: move |checked: bool| {
+                        checked: Some(is_checked),
+                        on_checked_change: move |checked: bool| {
                             if checked { s.select_all() } else { s.deselect_all() }
                         },
                     }

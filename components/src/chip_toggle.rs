@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 #[component]
 pub fn ChipToggle(

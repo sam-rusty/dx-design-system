@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use utils::format::{clamp_percent, format_number, format_phone, parse_number, parse_phone};
+use ds_utils::format::{clamp_percent, format_number, format_phone, parse_number, parse_phone};
 
 mod tooltip_render {
     use dioxus::dioxus_core::VirtualDom;

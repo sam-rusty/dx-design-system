@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 const BASE_CLASS: &str = "flex items-center justify-center overflow-hidden h-10 w-10 rounded-full bg-primary/15 text-primary select-none";
 

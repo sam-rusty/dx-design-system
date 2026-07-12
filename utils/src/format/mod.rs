@@ -13,7 +13,7 @@ pub use text::*;
 /// Convenience macro for `merge()` — joins non-empty class strings with spaces.
 ///
 /// ```ignore
-/// use utils::classes;
+/// use crate::classes;
 /// let s = classes!("px-4 py-2", "text-sm", &user_class);
 /// ```
 #[macro_export]

@@ -1,0 +1,98 @@
+/*
+ * design-system token contract for `ds-components`.
+ *
+ * Import from an app's Tailwind entry, before its own token overrides:
+ *     @import "../../design-system/theme.css";
+ *
+ * The app still owns its brand palette (--background, --primary, --input, …).
+ * This file only supplies the tokens `ds-components` needs that aren't part of
+ * the standard shadcn set — chiefly the field surface, which is tokenized so an
+ * app can reskin inputs (e.g. a pill/glass look) without forking the component.
+ *
+ * Field surface defaults below reproduce the standard rounded-bordered control.
+ * To reskin, override the --field-* group in your own :root (see the kyosk
+ * mobile app, which sets a pill/glass field).
+ */
+
+:root {
+    /* Field surface — consumed by InputBase / the form controls. Defaults match
+       the standard `rounded-lg border border-input bg-transparent` field. */
+    --field-radius: 0.5rem;
+    --field-bg: transparent;
+    --field-bg-focus: transparent;
+    --field-border-color: var(--input);
+    --field-border-width: 1px;
+    /* Floating-label knockout: the label's own background where it crosses the
+       field border. Match the surface the field sits on (card by default;
+       apps whose fields sit on the body override to --background). */
+    --field-notch-bg: var(--card);
+
+    /* Glass toolkit tokens referenced by Card's glass variants and the pill
+       field. Neutral fallbacks; an app with a real glass palette overrides the
+       --glass-* / --color-hi values. */
+    --glass-hair: rgb(0 0 0 / 0.08);
+    --glass-hi: rgb(120 120 128 / 0.16);
+    --glass-rim: rgb(255 255 255 / 0.7);
+}
+
+.dark {
+    --glass-hair: rgb(255 255 255 / 0.1);
+    --glass-hi: rgb(120 120 128 / 0.32);
+    --glass-rim: rgb(255 255 255 / 0.12);
+}
+
+/* Map the toolkit vars onto Tailwind color/shadow utilities so `bg-glass`,
+   `bg-glass-hi`, `border-line-strong`, `var(--color-hi)`, and `shadow-soft` /
+   `shadow-float` resolve. An app that already registers these (kyosk mobile)
+   simply overrides — @theme is additive, last definition wins. */
+@theme inline {
+    --color-glass: var(--glass-hi);
+    --color-glass-hi: var(--glass-hi);
+    --color-hi: var(--glass-rim);
+    --color-line-strong: var(--input);
+}
+
+@theme {
+    --shadow-soft: 0 2px 9px rgb(0 0 0 / 0.08);
+    --shadow-float: 0 10px 24px rgb(0 0 0 / 0.18);
+}
+
+/* StatusDot pulse ring. Tone classes set the ring color; `dot-pulse` animates
+   an expanding ::after halo. */
+@keyframes dot-pulse-ring {
+    0% {
+        transform: scale(1);
+        opacity: 0.5;
+    }
+    100% {
+        transform: scale(2.6);
+        opacity: 0;
+    }
+}
+
+.dot-pulse {
+    position: relative;
+}
+.dot-pulse::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: dot-pulse-ring 1.6s ease-out infinite;
+}
+.dot-pulse-success::after {
+    background: var(--color-success);
+}
+.dot-pulse-primary::after {
+    background: var(--color-primary);
+}
+.dot-pulse-warning::after {
+    background: var(--color-warning);
+}
+.dot-pulse-destructive::after {
+    background: var(--color-destructive);
+}
+.dot-pulse-muted::after {
+    background: var(--color-muted-foreground);
+}

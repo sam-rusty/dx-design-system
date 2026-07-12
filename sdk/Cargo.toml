@@ -1,0 +1,13 @@
+[package]
+name = "design-system"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ds-components = { workspace = true }
+ds-macros = { workspace = true }
+ds-utils = { workspace = true }
+
+[features]
+web = ["ds-components/web", "ds-utils/web"]
+server = ["ds-utils/server"]

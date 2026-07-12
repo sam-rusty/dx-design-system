@@ -2,19 +2,19 @@ use dioxus::prelude::*;
 
 use crate::{
     Alert, AlertVariant, Button, ButtonVariant, Column, Container, Flex, FlexAlign, FlexGap,
-    FlexJustify, Icon, IconName, Link, Logo, Row, Text, TextSize, TextVariant, Title, TitleSize,
+    FlexJustify, Icon, IconName, Link, Row, Text, TextSize, TextVariant, Title, TitleSize,
 };
 
 /// Compact loading state for nested [`SuspenseBoundary`] (main column only, not full viewport).
-pub fn SectionLoader() -> Element {
+/// The `logo` is supplied by the host app (each brand ships its own mark).
+#[component]
+pub fn SectionLoader(logo: Element) -> Element {
     rsx! {
         Flex {
             align: FlexAlign::Center,
             justify: FlexJustify::Center,
             class: "min-h-[min(50vh,24rem)] w-full bg-background text-foreground",
-            div { class: "animate-pulse",
-                Logo { size: 40 }
-            }
+            div { class: "animate-pulse", {logo} }
         }
     }
 }
@@ -44,7 +44,7 @@ pub fn SectionErrorFallback(ctx: ErrorContext) -> Element {
 }
 
 #[component]
-pub fn AppRouteErrorFallback(ctx: ErrorContext) -> Element {
+pub fn AppRouteErrorFallback(ctx: ErrorContext, logo: Element) -> Element {
     let detail = ctx.error().map(|e| e.to_string()).unwrap_or_default();
     rsx! {
         Column {
@@ -52,9 +52,7 @@ pub fn AppRouteErrorFallback(ctx: ErrorContext) -> Element {
             justify: FlexJustify::Center,
             gap: FlexGap::Lg,
             class: "min-h-screen w-full bg-background text-foreground text-center px-4",
-            div { class: "opacity-70",
-                Logo { size: 46 }
-            }
+            div { class: "opacity-70", {logo} }
             Title { "Something went wrong" }
             Text { variant: TextVariant::Secondary, size: TextSize::Large, class: "max-w-md",
                 "This page hit an unexpected error. You can try again or return to the dashboard."
@@ -88,15 +86,13 @@ pub fn AppRouteErrorFallback(ctx: ErrorContext) -> Element {
 }
 
 #[component]
-pub fn NotFound(route: Vec<String>) -> Element {
+pub fn NotFound(route: Vec<String>, logo: Element) -> Element {
     rsx! {
         Column {
             align: FlexAlign::Center,
             justify: FlexJustify::Center,
             class: "min-h-screen w-full bg-background text-foreground text-center px-4",
-            div { class: "mb-12 opacity-70",
-                Logo { size: 46 }
-            }
+            div { class: "mb-12 opacity-70", {logo} }
             Title { "404" }
             Text { variant: TextVariant::Secondary, size: TextSize::Large, class: "mb-8",
                 "The page you're looking for doesn't exist."
@@ -110,15 +106,14 @@ pub fn NotFound(route: Vec<String>) -> Element {
     }
 }
 
-pub fn PageLoader() -> Element {
+#[component]
+pub fn PageLoader(logo: Element) -> Element {
     rsx! {
         Flex {
             align: FlexAlign::Center,
             justify: FlexJustify::Center,
             class: "min-h-screen w-full bg-background text-foreground",
-            div { class: "animate-pulse",
-                Logo { size: 46 }
-            }
+            div { class: "animate-pulse", {logo} }
         }
     }
 }

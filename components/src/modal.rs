@@ -1,4 +1,4 @@
-use components::{Button, Icon, IconName, Portal, Title, TitleSize};
+use crate::{Button, Icon, IconName, Portal, Title, TitleSize};
 use dioxus::prelude::*;
 use strum_macros::AsRefStr;
 

@@ -1,6 +1,6 @@
-use components::{Icon, IconName, Link};
+use crate::{Icon, IconName, Link};
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 

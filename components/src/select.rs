@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::classes;
+use ds_utils::classes;
 
 use crate::field_name::Field;
 use crate::form::{FieldActions, FieldContext, FormContext, FormError, FormField, LabelHint};

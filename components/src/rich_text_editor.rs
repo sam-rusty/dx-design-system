@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
-use macros::on_web;
-use utils::format::merge;
+use ds_macros::on_web;
+use ds_utils::format::merge;
 
 on_web! {
     use dioxus::web::WebEventExt;

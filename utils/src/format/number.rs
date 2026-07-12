@@ -100,5 +100,4 @@ mod tests {
         let raw = "-9876543.21";
         assert_eq!(parse_number(&format_number(raw)), raw);
     }
-
 }

@@ -1,4 +1,4 @@
-use components::{Icon, IconName, Link};
+use crate::{Icon, IconName, Link};
 use dioxus::prelude::*;
 
 const BASE_CLASS: &str = "flex inline-flex items-center gap-2 mb-2 text-muted-foreground font-medium hover:text-foreground transition-colors";

@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 use crate::icon::{Icon, IconName};
 use crate::spinner::Spinner;
@@ -49,18 +49,16 @@ pub enum ButtonSize {
     Sm,
     Lg,
     Icon,
-    Mobile,
     Badge,
 }
 
 impl ButtonSize {
     pub(crate) fn class(self) -> &'static str {
         match self {
-            Self::Default => "h-10 px-5",
+            Self::Default => "h-12 px-5",
             Self::Sm => "h-8 px-3 text-xs",
             Self::Lg => "h-12 px-8 text-base",
             Self::Icon => "h-10 w-10",
-            Self::Mobile => "h-14 px-10 text-lg",
             Self::Badge => "h-6 px-2.5 text-[10px] uppercase tracking-wider font-bold",
         }
     }
@@ -75,6 +73,10 @@ pub fn Button(
     /// When true the button is disabled and a leading spinner replaces `icon`.
     #[props(default)]
     loading: bool,
+    /// When true, render no base/variant/size classes — only `class`. For bespoke
+    /// controls (segmented toggles, chips, nav rows) that need full styling control.
+    #[props(default)]
+    bare: bool,
     /// Optional leading icon, rendered before `children`. Swapped for a spinner while `loading`.
     #[props(default)]
     icon: Option<IconName>,
@@ -83,7 +85,11 @@ pub fn Button(
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
-    let class = merge(&[BUTTON_BASE_CLASS, variant.class(), size.class(), &class]);
+    let class = if bare {
+        merge(&[&class])
+    } else {
+        merge(&[BUTTON_BASE_CLASS, variant.class(), size.class(), &class])
+    };
 
     rsx! {
         button {

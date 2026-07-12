@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 /// One selectable color swatch. `value` is an opaque identifier the caller maps
 /// back to its own color type; `class` is the Tailwind background class to paint.

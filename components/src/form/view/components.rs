@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use components::{Alert, AlertVariant};
+use crate::{Alert, AlertVariant};
 use dioxus::prelude::*;
-use utils::format::{
+use ds_utils::format::{
     clamp_percent, filter_percent, format_number, format_percent, format_phone, merge,
     parse_number, parse_percent, parse_phone,
 };
@@ -408,6 +408,29 @@ pub fn TextInput(
     }
 }
 
+/// Chromeless text field — no floating label, no border/background of its own.
+/// The caller styles it via `class` (the control renders `unstyled`), so it can
+/// sit inside a custom surface (an editable card cell, an inline row).
+#[component]
+pub fn BareTextInput(
+    #[props(into)] field: Field,
+    #[props(default)] class: String,
+    #[props(default)] placeholder: String,
+    #[props(default)] autofocus: bool,
+) -> Element {
+    rsx! {
+        FormField { field,
+            InputFormControl {
+                input_type: InputType::Text,
+                class,
+                placeholder,
+                autofocus,
+                unstyled: true,
+            }
+        }
+    }
+}
+
 #[component]
 pub fn EmailInput(
     #[props(into)] field: Field,
@@ -430,7 +453,7 @@ pub fn EmailInput(
 
 #[component]
 pub fn PasswordInput(
-    field: Field,
+    #[props(into)] field: Field,
     #[props(default)] autofocus: bool,
     #[props(default)] tooltip: Option<Element>,
 ) -> Element {
@@ -481,6 +504,8 @@ pub(crate) fn InputFormControl(
     #[props(default)] size: InputSize,
     #[props(default)] class: String,
     #[props(default)] autofocus: bool,
+    #[props(default = " ".to_string())] placeholder: String,
+    #[props(default)] unstyled: bool,
     #[props(default)] format: Option<fn(&str) -> String>,
     #[props(default)] parse: Option<fn(&str) -> String>,
     #[props(default)] filter: Option<fn(&str) -> String>,
@@ -530,7 +555,8 @@ pub(crate) fn InputFormControl(
             r#type: input_type,
             size,
             id,
-            placeholder: " ".to_string(),
+            placeholder,
+            unstyled,
             class: input_class,
             disabled: is_disabled,
             autofocus,
@@ -603,7 +629,7 @@ pub fn FormLabel(
     };
 
     let merged_class = merge(&[
-        "absolute start-3 top-0 z-10 origin-[0] -translate-y-1/2 transform bg-card px-1 text-sm font-medium text-muted-foreground duration-200 scale-75 pointer-events-none",
+        "absolute start-3 top-0 z-10 origin-[0] -translate-y-1/2 transform bg-[var(--field-notch-bg)] peer-[:placeholder-shown:not(:focus)]:bg-transparent px-1 text-sm font-medium text-muted-foreground duration-200 scale-75 pointer-events-none",
         placeholder_shown,
         "peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:scale-75 peer-focus:font-medium peer-focus:text-primary",
         "peer-data-[invalid=true]:text-destructive peer-focus:peer-data-[invalid=true]:text-destructive",

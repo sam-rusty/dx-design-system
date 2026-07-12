@@ -56,7 +56,7 @@ fn overlay_stack() -> OverlayStack {
 
 /// Call `on_escape` when the user presses Escape, but only while this listener
 /// is the top-most one (the most recently mounted overlay wins).
-pub(crate) fn use_escape_listener(on_escape: impl FnMut() + 'static) {
+pub fn use_escape_listener(on_escape: impl FnMut() + 'static) {
     #[cfg(target_arch = "wasm32")]
     {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
@@ -128,7 +128,7 @@ pub(crate) fn use_escape_listener(on_escape: impl FnMut() + 'static) {
 /// the most-recently-opened overlay, not merely the last mounted (dropdowns and
 /// selects stay mounted while closed). Uses the capture phase so the dismiss
 /// check runs before the event reaches application handlers.
-pub(crate) fn use_outside_dismiss(
+pub fn use_outside_dismiss(
     root_el: Signal<Option<web_sys::Element>>,
     is_open: ReadSignal<bool>,
     on_dismiss: impl FnMut() + 'static,

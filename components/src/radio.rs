@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
+use ds_utils::format::merge;
 use strum_macros::AsRefStr;
-use utils::format::merge;
 
 use crate::Field;
 use crate::form::{FieldContext, FormContext, FormError, FormField, LabelHint};
@@ -225,7 +225,7 @@ fn RadioGroupItem(
 /// Standalone controlled radio button for non-form contexts that own their own
 /// selection state (e.g. the inline option pickers in `multi_search`).
 #[component]
-pub(crate) fn Radio(
+pub fn Radio(
     #[props(default)] class: String,
     #[props(default)] value: Option<String>,
     #[props(default)] disabled: bool,

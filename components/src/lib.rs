@@ -1,8 +1,6 @@
 #![recursion_limit = "256"]
 #![allow(non_snake_case)]
 
-extern crate self as components;
-
 pub(crate) mod accordion;
 pub mod alert;
 pub(crate) mod app_shell;
@@ -41,12 +39,13 @@ pub(crate) mod layout;
 pub(crate) mod link;
 pub(crate) mod list_view;
 pub(crate) mod loading_overlay;
-pub(crate) mod logo;
 pub(crate) mod nav_sliding_indicator;
 pub(crate) mod nav_tabs;
+pub(crate) mod number_stepper;
 pub(crate) mod placement;
 pub(crate) mod popover;
 pub(crate) mod portal;
+pub(crate) mod progress;
 pub(crate) mod radio;
 pub(crate) mod resource_view;
 pub(crate) mod rich_text_editor;
@@ -55,7 +54,11 @@ pub(crate) mod section_header;
 pub(crate) mod segmented_control;
 pub(crate) mod select;
 pub(crate) mod separator;
+pub(crate) mod slider;
 pub(crate) mod spinner;
+pub(crate) mod stat_tile;
+pub(crate) mod status_dot;
+pub(crate) mod step_dots;
 pub(crate) mod tabs;
 pub(crate) mod text;
 pub(crate) mod textarea;
@@ -73,7 +76,7 @@ pub use back::Back;
 pub use badge::{Badge, BadgeSize, BadgeVariant};
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use calendar::{CalendarEvent, MonthView, TimeGrid, TimeGridEvent};
-pub use card::Card;
+pub use card::{Card, CardVariant};
 pub use charts::{
     AreaLineChart, ChartSegment, DonutChart, LineMarker, LinePoint, LineSeries, SegmentColor,
     StackedBarChart,
@@ -86,13 +89,14 @@ pub use data_table::{
     Col, ColRenderFn, DataTable, DataTableSkeleton, ItemKeyProp, SortDir, TableColumn, col,
 };
 pub use date_picker::{
-    DatePicker, DatePickerBase, DateRangePicker, DateTimePicker, DateTimePickerBase,
+    Date, DatePicker, DatePickerBase, DateRangePicker, DateTime, DateTimePicker, DateTimePickerBase,
 };
 pub use dropdown::{
     DropdownCloseButton, DropdownMenu, DropdownMenuAlign, DropdownMenuCoordinatorProvider,
     DropdownMenuGroup, DropdownMenuItem, DropdownMenuRadioItem, DropdownMenuSeparator,
     DropdownMenuSize, DropdownMenuSub,
 };
+pub use ds_macros::{FormFields, FormOptions, Steps};
 pub use empty_state::EmptyState;
 pub use fallback_view::{
     AppRouteErrorFallback, NotFound, PageLoader, SectionErrorFallback, SectionLoader,
@@ -101,10 +105,15 @@ pub use fallback_view::{
 pub use field_name::{Field, FieldArray, FieldKey, FieldName, FieldPath, FieldType, FormSchema};
 pub use file_upload::{FileInfo, FileUpload};
 pub use focus::active_element_id;
-pub use form::{Form, FormData, FormSubmit, use_form};
+pub use form::{
+    BareTextInput, Form, FormData, FormProvider, FormSubmit, NumberInput, PasswordInput, TextInput,
+    use_form,
+};
+pub use hooks::{use_escape_listener, use_outside_dismiss};
 pub use icon::{Icon, IconName};
 pub use icon_bubble::{IconBubble, IconBubbleColor, IconBubbleSize};
-pub use input::{InputBase, InputSize, InputType};
+pub use input::{AutofocusGate, InputBase, InputSize, InputType, PasswordInputBase};
+pub use label::Label;
 pub use layout::{
     Column, Container, Flex, FlexAlign, FlexDirection, FlexGap, FlexGridCols, FlexJustify,
     FlexWrap, Grid, Row,
@@ -112,8 +121,6 @@ pub use layout::{
 pub use link::{Link, LinkType};
 pub use list_view::{FetchFn, ListEmpty, ListPage, ListView, RenderFn};
 pub use loading_overlay::LoadingOverlay;
-pub use logo::Logo;
-pub use macros::{FormFields, FormOptions, Steps};
 pub use modal::{Modal, ModalSize};
 #[cfg(target_arch = "wasm32")]
 pub use nav_sliding_indicator::sliding_indicator_style;
@@ -122,10 +129,12 @@ pub use nav_sliding_indicator::{
     sliding_indicator_class,
 };
 pub use nav_tabs::{NavItem, NavTabs, NavTabsDirection};
+pub use number_stepper::NumberStepper;
 pub use placement::{Align, Placement};
 pub use popover::{Popover, PopoverConfirm};
 pub use portal::Portal;
-pub use radio::{RadioGroup, RadioGroupDirection};
+pub use progress::Progress;
+pub use radio::{Radio, RadioGroup, RadioGroupDirection};
 pub use resource_view::ResourceView;
 pub use rich_text_editor::{RichTextEditor, RichTextEditorBase, rte_insert_text};
 pub use route_transition_outlet::RouteTransitionOutlet;
@@ -135,7 +144,11 @@ pub use select::{Select, SelectBase, SelectOption, use_select_contexts};
 pub use separator::{Separator, SeparatorOrientation};
 #[doc(hidden)]
 pub use serde_json;
+pub use slider::Slider;
 pub use spinner::Spinner;
+pub use stat_tile::{StatTile, StatTone};
+pub use status_dot::{DotTone, StatusDot};
+pub use step_dots::{StepDots, StepKey, StepMeta};
 #[deprecated(note = "renamed to `StepDefinition`")]
 pub use stepper::StepDefination;
 pub use stepper::{
@@ -144,7 +157,7 @@ pub use stepper::{
     SummaryField, SummarySection, use_step, use_step_ctx,
 };
 pub use tabs::{TabItem, TabType, Tabs};
-pub use text::{Text, TextSize, TextVariant};
+pub use text::{Text, TextSize, TextTone, TextVariant, TextWeight};
 pub use textarea::{TextArea, TextAreaBase, TextAreaResize, textarea_insert_at_cursor};
 pub use title::{Title, TitleSize};
 pub use toast::{ToastItem, ToastPlacement, ToastStore, ToastVariant, Toaster, use_toast};

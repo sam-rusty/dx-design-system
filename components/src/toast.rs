@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 use crate::hooks::use_timeout;
 use crate::icon::{Icon, IconName};

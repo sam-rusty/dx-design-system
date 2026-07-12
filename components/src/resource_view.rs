@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::DsError;
+use ds_utils::DsError;
 
 /// Renders the four standard states of a `use_resource` result in one place:
 /// loading (`skeleton`), error (`error`), empty (`empty`), and loaded (`view`).

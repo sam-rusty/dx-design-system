@@ -9,7 +9,7 @@ mod steps;
 /// Applies `#[cfg(feature = "server")]` to every item inside the block.
 ///
 /// ```ignore
-/// macros::on_server! {
+/// crate::on_server! {
 ///     use std::str::FromStr;
 ///     use crate::AutomationStepKind;
 /// }
@@ -22,7 +22,7 @@ pub fn on_server(input: TokenStream) -> TokenStream {
 /// Applies `#[cfg(feature = "web")]` to every item inside the block.
 ///
 /// ```ignore
-/// macros::on_web! {
+/// crate::on_web! {
 ///     use web_sys::window;
 /// }
 /// ```

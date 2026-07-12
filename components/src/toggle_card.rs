@@ -75,6 +75,9 @@ pub fn ToggleCard(
 pub fn Switch(
     checked: bool,
     #[props(default)] on_change: Option<EventHandler<bool>>,
+    /// Alias of `on_change` for call sites that name the handler `on_toggle`.
+    #[props(default)]
+    on_toggle: Option<EventHandler<bool>>,
     #[props(default)] disabled: bool,
     #[props(default)] loading: bool,
     #[props(default)] checked_children: Option<Element>,
@@ -95,6 +98,9 @@ pub fn Switch(
             disabled: disabled || loading,
             onclick: move |_| {
                 if let Some(cb) = &on_change {
+                    cb.call(!checked);
+                }
+                if let Some(cb) = &on_toggle {
                     cb.call(!checked);
                 }
             },

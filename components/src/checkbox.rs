@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 use crate::field_name::Field;
 use crate::form::{FieldContext, FormContext, FormError, FormField, LabelHint};

@@ -1,7 +1,7 @@
-use components::button::BUTTON_BASE_CLASS;
-use components::{ButtonSize, ButtonVariant};
+use crate::button::BUTTON_BASE_CLASS;
+use crate::{ButtonSize, ButtonVariant};
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 #[derive(Default, Clone, PartialEq)]
 pub enum LinkType {

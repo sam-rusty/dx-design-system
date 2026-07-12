@@ -1,5 +1,5 @@
 [package]
-name = "macros"
+name = "ds-macros"
 version.workspace = true
 edition.workspace = true
 
@@ -13,4 +13,4 @@ syn = { version = "2", features = ["full"] }
 
 [dev-dependencies]
 serde = { workspace = true, features = ["derive"] }
-utils = { workspace = true }
+ds-utils = { workspace = true }

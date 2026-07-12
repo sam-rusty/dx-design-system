@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 const LABEL_BASE: &str = "flex items-center gap-2 text-sm leading-none font-medium select-none \
      peer-disabled:cursor-not-allowed peer-disabled:opacity-50 \

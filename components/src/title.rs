@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 const BASE: &str = "scroll-m-20 tracking-tight text-foreground antialiased";
 

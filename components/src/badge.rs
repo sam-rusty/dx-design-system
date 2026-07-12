@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BadgeVariant {
@@ -11,6 +11,7 @@ pub enum BadgeVariant {
     Destructive,
     Success,
     Warning,
+    Outline,
 }
 
 impl BadgeVariant {
@@ -23,6 +24,7 @@ impl BadgeVariant {
             Self::Destructive => "bg-destructive/10 text-destructive",
             Self::Success => "bg-success/10 text-success",
             Self::Warning => "bg-warning/10 text-warning",
+            Self::Outline => "border border-border text-muted-foreground bg-transparent",
         }
     }
 }
@@ -33,6 +35,7 @@ pub enum BadgeSize {
     #[default]
     Sm,
     Md,
+    Lg,
 }
 
 impl BadgeSize {
@@ -41,6 +44,7 @@ impl BadgeSize {
             Self::Xs => "text-[10px] px-1.5 py-0.5 font-semibold uppercase tracking-wide",
             Self::Sm => "text-xs px-2 py-0.5 font-medium",
             Self::Md => "text-xs px-2.5 py-1 font-medium",
+            Self::Lg => "text-sm px-3 py-1.5 font-semibold gap-1.5",
         }
     }
 }

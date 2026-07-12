@@ -1,5 +1,5 @@
 [package]
-name = "components"
+name = "ds-components"
 version.workspace = true
 edition.workspace = true
 
@@ -14,8 +14,8 @@ validator = { workspace = true }
 wasm-bindgen = { workspace = true, optional = true }
 web-sys = { workspace = true, features = ["Blob", "Clipboard", "DataTransfer", "Document", "DomRect", "DomTokenList", "DragEvent", "Element", "Event", "EventTarget", "File", "FileList", "FileReader", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "MediaQueryList", "Navigator", "Node", "Storage", "Window"] }
 
-macros = { workspace = true }
-utils = { workspace = true }
+ds-macros = { workspace = true }
+ds-utils = { workspace = true }
 
 [features]
-web = ["dioxus/web", "utils/web", "dep:js-sys", "dep:wasm-bindgen"]
+web = ["dioxus/web", "ds-utils/web", "dep:js-sys", "dep:wasm-bindgen"]

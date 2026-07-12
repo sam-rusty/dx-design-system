@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use ds_utils::{DsError, Result};
 use serde_json::{Value, json};
-use utils::{DsError, Result};
 use validator::ValidationErrors;
 
 use crate::field_name::FieldType;

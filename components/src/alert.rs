@@ -1,6 +1,6 @@
-use components::{Icon, IconName};
+use crate::{Icon, IconName};
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AlertVariant {

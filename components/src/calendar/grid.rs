@@ -25,7 +25,7 @@ pub fn month_name(month: u32) -> &'static str {
 }
 
 // Re-export formatting/parsing functions from utils
-pub use utils::format::{
+pub use ds_utils::format::{
     format_date, format_date_range, format_header_date, parse_date, parse_date_range,
     parse_datetime,
 };
@@ -130,8 +130,8 @@ pub fn year_range() -> std::ops::RangeInclusive<i32> {
 
 #[cfg(test)]
 mod tests {
+    use ds_utils::format::format_datetime;
     use time::{Date, Month, PrimitiveDateTime, Time};
-    use utils::format::format_datetime;
 
     use super::*;
 

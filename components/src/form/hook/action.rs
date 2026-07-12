@@ -1,6 +1,6 @@
 use dioxus::CapturedError;
 use dioxus::prelude::*;
-use utils::DsError;
+use ds_utils::DsError;
 
 pub type SubmitFn = Box<dyn FnMut()>;
 
@@ -9,7 +9,7 @@ pub type SubmitFn = Box<dyn FnMut()>;
 pub struct FormSubmit<T: 'static> {
     call_fn: CopyValue<Box<dyn FnMut(T)>>,
     pending_fn: CopyValue<Box<dyn Fn() -> bool>>,
-    result_fn: CopyValue<Box<dyn Fn() -> Option<utils::Result<()>>>>,
+    result_fn: CopyValue<Box<dyn Fn() -> Option<ds_utils::Result<()>>>>,
 }
 
 impl<T: 'static> Clone for FormSubmit<T> {
@@ -37,7 +37,7 @@ impl<T: 'static> FormSubmit<T> {
     }
 
     /// Last action result, with success payload erased. `None` while pending/reset.
-    pub fn result(&self) -> Option<utils::Result<()>> {
+    pub fn result(&self) -> Option<ds_utils::Result<()>> {
         (self.result_fn.read())()
     }
 
@@ -82,7 +82,7 @@ pub fn captured_app_error(captured: &CapturedError) -> DsError {
         .unwrap_or_else(|| DsError::InternalServer(captured.to_string()))
 }
 
-fn action_result<I: 'static, O: 'static>(action: &Action<I, O>) -> Option<utils::Result<()>> {
+fn action_result<I: 'static, O: 'static>(action: &Action<I, O>) -> Option<ds_utils::Result<()>> {
     match action.value() {
         Some(Ok(_)) => Some(Ok(())),
         Some(Err(captured)) => Some(Err(captured_app_error(&captured))),

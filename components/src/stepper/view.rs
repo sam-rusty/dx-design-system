@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 use super::state::{
     AnyStepCtx, InternalStepCtx, InternalStepInfo, StepCtx, StepDefinition, StepFieldRegistry,

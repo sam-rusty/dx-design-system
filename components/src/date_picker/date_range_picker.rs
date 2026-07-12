@@ -1,7 +1,7 @@
 use super::Date as WireDate;
 use dioxus::prelude::*;
+use ds_utils::format::merge;
 use time::Date;
-use utils::format::merge;
 
 use super::panel::{CalendarPanel, PickerFooter, SelectionState};
 use super::shared::{format_display_date, *};

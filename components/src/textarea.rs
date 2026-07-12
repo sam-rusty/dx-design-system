@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
-use macros::on_web;
-use utils::format::merge;
+use ds_macros::on_web;
+use ds_utils::format::merge;
 
 use crate::field_name::Field;
 use crate::form::{FieldContext, FormContext, FormError, FormField, FormLabel};

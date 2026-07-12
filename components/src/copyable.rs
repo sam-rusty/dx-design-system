@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 use crate::icon::{Icon, IconName};
 

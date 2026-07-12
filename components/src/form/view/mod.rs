@@ -3,7 +3,7 @@
 mod components;
 mod layout;
 
-pub use components::*;
+pub use self::components::*;
 pub use layout::*;
 
 #[cfg(test)]

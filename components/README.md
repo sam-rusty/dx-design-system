@@ -21,7 +21,6 @@ How to use exported UI from `components`. The full export list is [`src/lib.rs`]
 - [Link](#link)
 - [Back](#back)
 - [Avatar](#avatar)
-- [Logo](#logo)
 - [Separator](#separator)
 - [Forms](#forms)
 - [TextArea](#textarea)
@@ -65,11 +64,11 @@ How to use exported UI from `components`. The full export list is [`src/lib.rs`]
 
 | Export | Props / signature |
 |--------|-------------------|
-| `PageLoader` | None |
-| `SectionLoader` | None |
-| `AppRouteErrorFallback` | `ctx: ErrorContext` |
+| `PageLoader` | `logo: Element` |
+| `SectionLoader` | `logo: Element` |
+| `AppRouteErrorFallback` | `ctx: ErrorContext`, `logo: Element` |
 | `SectionErrorFallback` | `ctx: ErrorContext` |
-| `NotFound` | `route: Vec<String>` |
+| `NotFound` | `route: Vec<String>`, `logo: Element` |
 | `WorkInProgress` | `title: String` |
 | `ThemeMenuView` | None — enable crate **`web`** feature for client theme persistence |
 | `Theme` | Enum: `Light`, `Dark`, `System` |
@@ -401,22 +400,6 @@ view! {
     <Avatar class="h-20 w-20 text-2xl font-bold">"AS"</Avatar>
     // image with initials fallback
     <Avatar src="/avatars/ab.png".to_string() alt="Ada B.".to_string()>"AB"</Avatar>
-}
-```
-
----
-
-## Logo
-
-| Prop | Type | Default |
-|------|------|---------|
-| `size` | `i32` | required |
-
-```rust
-use components::Logo;
-
-view! {
-    <Logo size=32 />
 }
 ```
 

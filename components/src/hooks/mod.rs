@@ -19,10 +19,8 @@ mod unique_id;
 
 pub(crate) use controlled::use_controlled;
 use dioxus::prelude::*;
-pub(crate) use dismiss::{
-    use_dismiss_on_viewport_change, use_escape_listener, use_outside_dismiss,
-    use_outside_dismiss_panel,
-};
+pub(crate) use dismiss::{use_dismiss_on_viewport_change, use_outside_dismiss_panel};
+pub use dismiss::{use_escape_listener, use_outside_dismiss};
 pub(crate) use focus::{
     FocusState, use_focus_control, use_focus_control_disabled, use_focus_entry_disabled,
     use_focus_provider,

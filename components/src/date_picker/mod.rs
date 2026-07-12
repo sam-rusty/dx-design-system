@@ -52,7 +52,7 @@ impl std::fmt::Display for Date {
 
 impl From<String> for Date {
     fn from(s: String) -> Self {
-        utils::format::parse_date(&s)
+        ds_utils::format::parse_date(&s)
             .map(Date)
             .unwrap_or_else(|| panic!("invalid date: {s}"))
     }
@@ -67,7 +67,7 @@ impl serde::Serialize for Date {
 impl<'de> serde::Deserialize<'de> for Date {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = String::deserialize(d)?;
-        utils::format::parse_date(&s)
+        ds_utils::format::parse_date(&s)
             .map(Date)
             .ok_or_else(|| serde::de::Error::custom(format!("invalid date: {s}")))
     }
@@ -107,7 +107,7 @@ fn deserialize_datetime_wire(s: &str) -> Option<DateTime> {
     if s.is_empty() {
         return None;
     }
-    let (date, hour, minute) = utils::format::parse_datetime(s)?;
+    let (date, hour, minute) = ds_utils::format::parse_datetime(s)?;
     let t = time::Time::from_hms(hour as u8, minute as u8, 0).ok()?;
     Some(DateTime::new(time::PrimitiveDateTime::new(date, t)))
 }

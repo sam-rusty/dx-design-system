@@ -1,12 +1,12 @@
 [workspace]
-members = ["macros", "components", "utils"]
+members = ["macros", "components", "utils", "sdk"]
 
 resolver = "2"
 package.edition = "2024"
 package.version = "0.2.0"
 
 [workspace.dependencies]
-dioxus = { git = "https://github.com/sam-rusty/dioxus", features = ["router", "fullstack", "launch", "lib"], default-features = false }
+dioxus = { git = "https://github.com/DioxusLabs/dioxus", rev = "e1c63426fd39018223480ee354ae3e8485ab8e2a", features = ["router", "fullstack", "launch", "lib"], default-features = false }
 http = "1.4.2"
 js-sys = "0.3.102"
 num-traits = "0.2.19"
@@ -22,5 +22,6 @@ wasm-bindgen = { version = "0.2.125" }
 web-sys = "0.3.102"
 
 # local crates
-macros = { path = "./macros" }
-utils = { path = "./utils", default-features = false }
+ds-components = { path = "./components" }
+ds-macros = { path = "./macros" }
+ds-utils = { path = "./utils", default-features = false }

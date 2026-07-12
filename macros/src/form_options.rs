@@ -2,7 +2,10 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, parse_macro_input};
 
-use crate::case::{apply_rename_all, find_serde_rename, find_serde_rename_all, find_strum_to_string, pascal_to_title};
+use crate::case::{
+    apply_rename_all, find_serde_rename, find_serde_rename_all, find_strum_to_string,
+    pascal_to_title,
+};
 
 pub fn derive_form_options(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

@@ -4,7 +4,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use utils::format::merge;
+use ds_utils::format::merge;
 
 use crate::checkbox::CheckboxBase;
 use crate::icon::{Icon, IconName};

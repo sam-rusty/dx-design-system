@@ -5,13 +5,13 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use utils::DsError;
-use utils::format::merge;
+use ds_utils::DsError;
+use ds_utils::format::merge;
 
 use crate::alert::Alert;
 use crate::button::{Button, ButtonVariant};
 use crate::layout::{Column, Flex, FlexAlign, FlexGap, FlexGridCols, FlexJustify, Grid, Row};
-use crate::logo::Logo;
+use crate::spinner::Spinner;
 use crate::text::{Text, TextSize, TextVariant};
 use crate::title::Title;
 
@@ -214,9 +214,7 @@ fn ListViewSuspenseFallback(
                 align: FlexAlign::Center,
                 justify: FlexJustify::Center,
                 class: "min-h-[min(50vh,24rem)] w-full",
-                div { class: "animate-pulse",
-                    Logo { size: 40 }
-                }
+                Spinner {}
             }
         },
     }

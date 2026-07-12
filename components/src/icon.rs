@@ -29,6 +29,29 @@ pub enum IconName {
     CircleHelp,
     Star,
     Lock,
+    Eye,
+    EyeOff,
+    Activity,
+    ArrowRightLeft,
+    BadgeEdit,
+    BadgePrint,
+    BadgeQr,
+    Badges,
+    Booth,
+    CameraOff,
+    CheckCircleFilled,
+    Cloud,
+    Globe,
+    InfoFilled,
+    OctagonAlertFilled,
+    Printer,
+    PrinterBadge,
+    QrScan,
+    Router,
+    Store,
+    TriangleAlertFilled,
+    Wifi,
+    WifiOff,
     Plus,
     CirclePlus,
     Briefcase,
@@ -639,6 +662,286 @@ fn icon_paths(name: IconName) -> Element {
         IconName::Video => rsx! {
             path { d: "m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.934a.5.5 0 0 0-.777-.416L16 11" }
             rect { x: "2", y: "6", width: "14", height: "12", rx: "2" }
+        },
+        IconName::Eye => rsx! {
+            path { d: "M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" }
+            circle { cx: "12", cy: "12", r: "3" }
+        },
+        IconName::EyeOff => rsx! {
+            path { d: "M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" }
+            path { d: "M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" }
+            path { d: "M9.88 9.88a3 3 0 1 0 4.24 4.24" }
+            line {
+                x1: "2",
+                y1: "2",
+                x2: "22",
+                y2: "22",
+            }
+        },
+        IconName::Activity => rsx! {
+            path { d: "M3 12h4l2 6 4-12 2 6h6" }
+        },
+        IconName::ArrowRightLeft => rsx! {
+            path { d: "M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" }
+        },
+        IconName::BadgeEdit => rsx! {
+            rect {
+                x: "3",
+                y: "3",
+                width: "12",
+                height: "15",
+                rx: "2",
+            }
+            path { d: "M7 3V2.2A1.2 1.2 0 0 1 8.2 1h1.6A1.2 1.2 0 0 1 11 2.2V3" }
+            circle { cx: "9", cy: "8", r: "1.5" }
+            path { d: "M6 12h6" }
+            path { d: "M19.5 12.5 21.5 14.5 15 21l-2 .6.6-2z" }
+            path { d: "M18 14 20 16" }
+        },
+        IconName::BadgePrint => rsx! {
+            rect {
+                x: "3",
+                y: "3",
+                width: "12",
+                height: "15",
+                rx: "2",
+            }
+            path { d: "M7 3V2.2A1.2 1.2 0 0 1 8.2 1h1.6A1.2 1.2 0 0 1 11 2.2V3" }
+            circle { cx: "9", cy: "8", r: "1.5" }
+            path { d: "M6 12h6" }
+            circle { cx: "18", cy: "18", r: "4" }
+            path { d: "M18 16.2v3.6M16.2 18h3.6" }
+        },
+        IconName::BadgeQr => rsx! {
+            rect {
+                x: "5",
+                y: "3",
+                width: "14",
+                height: "18",
+                rx: "2",
+            }
+            path { d: "M10 3V1.5A1.5 1.5 0 0 1 11.5 0" }
+            rect {
+                x: "8",
+                y: "7",
+                width: "3.2",
+                height: "3.2",
+                rx: "0.4",
+            }
+            rect {
+                x: "8",
+                y: "13.6",
+                width: "3.2",
+                height: "3.2",
+                rx: "0.4",
+            }
+            rect {
+                x: "14",
+                y: "7",
+                width: "2",
+                height: "2",
+                rx: "0.3",
+            }
+            path { d: "m13.2 15.8 1.4 1.4 3-3" }
+        },
+        IconName::Badges => rsx! {
+            path { d: "M6 15c-1.1 0-2-.9-2-2V5a2 2 0 0 1 2-2h6" }
+            rect {
+                x: "9",
+                y: "6",
+                width: "11",
+                height: "15",
+                rx: "2",
+            }
+            path { d: "M12 6V4.5A1.5 1.5 0 0 1 13.5 3h2A1.5 1.5 0 0 1 17 4.5V6" }
+            circle { cx: "14.5", cy: "12", r: "1.6" }
+            path { d: "M12 16.5h5" }
+        },
+        IconName::Booth => rsx! {
+            path { d: "M3.5 8 5 4h14l1.5 4" }
+            path { d: "M4.5 8v11a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1V8" }
+            path { d: "M3.5 8h17" }
+            path { d: "M9 20v-3.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1V20" }
+        },
+        IconName::CameraOff => rsx! {
+            path { d: "M2 2l20 20M7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h13M9.5 4h5L17 7h3a2 2 0 0 1 2 2v7.5M14.1 15.1A3 3 0 0 1 9.9 10.9" }
+        },
+        IconName::CheckCircleFilled => rsx! {
+            circle {
+                cx: "12",
+                cy: "12",
+                r: "10.5",
+                fill: "currentColor",
+                stroke: "none",
+            }
+            path {
+                d: "m7.4 12.4 3 3 6.2-6.4",
+                stroke: "var(--background)",
+                stroke_width: "2.2",
+            }
+        },
+        IconName::Cloud => rsx! {
+            path { d: "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" }
+        },
+        IconName::Globe => rsx! {
+            circle { cx: "12", cy: "12", r: "10" }
+            path { d: "M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20" }
+        },
+        IconName::InfoFilled => rsx! {
+            circle {
+                cx: "12",
+                cy: "12",
+                r: "10.5",
+                fill: "currentColor",
+                stroke: "none",
+            }
+            circle {
+                cx: "12",
+                cy: "7.6",
+                r: "1.35",
+                fill: "var(--background)",
+                stroke: "none",
+            }
+            line {
+                x1: "12",
+                y1: "11.2",
+                x2: "12",
+                y2: "16.6",
+                stroke: "var(--background)",
+                stroke_width: "2.2",
+            }
+        },
+        IconName::OctagonAlertFilled => rsx! {
+            path {
+                fill: "currentColor",
+                stroke: "none",
+                d: "M8.1 1.5h7.8a2 2 0 0 1 1.42.59l5.59 5.59a2 2 0 0 1 .59 1.42v7.8a2 2 0 0 1-.59 1.42l-5.59 5.59a2 2 0 0 1-1.42.59H8.1a2 2 0 0 1-1.42-.59L1.09 18.32a2 2 0 0 1-.59-1.42V9.1a2 2 0 0 1 .59-1.42L6.68 2.09A2 2 0 0 1 8.1 1.5Z",
+            }
+            line {
+                x1: "12",
+                y1: "7.2",
+                x2: "12",
+                y2: "13",
+                stroke: "var(--background)",
+                stroke_width: "2.2",
+            }
+            circle {
+                cx: "12",
+                cy: "16.8",
+                r: "1.35",
+                fill: "var(--background)",
+                stroke: "none",
+            }
+        },
+        IconName::Printer => rsx! {
+            path { d: "M6 9V2h12v7" }
+            rect {
+                x: "6",
+                y: "13",
+                width: "12",
+                height: "9",
+            }
+            path { d: "M6 18H4a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2" }
+        },
+        IconName::PrinterBadge => rsx! {
+            rect {
+                x: "6",
+                y: "3",
+                width: "12",
+                height: "7",
+                rx: "1.5",
+            }
+            circle { cx: "10", cy: "6.5", r: "1.2" }
+            path { d: "M13 6h3" }
+            path { d: "M6 10h12" }
+            path { d: "M8 13h8" }
+            path { d: "M4 16h16" }
+            path { d: "M6 10H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h2M18 10h2a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2" }
+            path { d: "M6 17h12v4H6z" }
+        },
+        IconName::QrScan => rsx! {
+            path { d: "M3 7V5a2 2 0 0 1 2-2h2" }
+            path { d: "M17 3h2a2 2 0 0 1 2 2v2" }
+            path { d: "M21 17v2a2 2 0 0 1-2 2h-2" }
+            path { d: "M7 21H5a2 2 0 0 1-2-2v-2" }
+            rect {
+                x: "8",
+                y: "8",
+                width: "3",
+                height: "3",
+                rx: "0.4",
+            }
+            rect {
+                x: "13",
+                y: "8",
+                width: "3",
+                height: "3",
+                rx: "0.4",
+            }
+            rect {
+                x: "8",
+                y: "13",
+                width: "3",
+                height: "3",
+                rx: "0.4",
+            }
+            rect {
+                x: "13.5",
+                y: "13.5",
+                width: "2",
+                height: "2",
+                rx: "0.3",
+            }
+        },
+        IconName::Router => rsx! {
+            rect {
+                width: "20",
+                height: "8",
+                x: "2",
+                y: "14",
+                rx: "2",
+            }
+            path { d: "M6.01 18H6M10.01 18H10M15 10v4M17.84 7.17a4 4 0 0 0-5.66 0M20.66 4.34a8 8 0 0 0-11.31 0" }
+        },
+        IconName::Store => rsx! {
+            path { d: "M3 9l1.5-5h15L21 9M4 9h16v10H4zM9 19v-5h6v5" }
+        },
+        IconName::TriangleAlertFilled => rsx! {
+            path {
+                fill: "currentColor",
+                stroke: "none",
+                d: "M12 2.4c.86 0 1.65.45 2.09 1.19l8.5 14.4c.9 1.53-.2 3.51-2.1 3.51H3.51c-1.9 0-3-1.98-2.1-3.51l8.5-14.4A2.43 2.43 0 0 1 12 2.4Z",
+            }
+            line {
+                x1: "12",
+                y1: "9",
+                x2: "12",
+                y2: "13.6",
+                stroke: "var(--background)",
+                stroke_width: "2.2",
+            }
+            circle {
+                cx: "12",
+                cy: "17.1",
+                r: "1.3",
+                fill: "var(--background)",
+                stroke: "none",
+            }
+        },
+        IconName::Wifi => rsx! {
+            path { d: "M12 20h.01" }
+            path { d: "M2 8.82a15 15 0 0 1 20 0" }
+            path { d: "M5 12.859a10 10 0 0 1 14 0" }
+            path { d: "M8.5 16.429a5 5 0 0 1 7 0" }
+        },
+        IconName::WifiOff => rsx! {
+            path { d: "M12 20h.01" }
+            path { d: "M8.5 16.429a5 5 0 0 1 7 0" }
+            path { d: "M5 12.859a10 10 0 0 1 5.17-2.69" }
+            path { d: "M19 12.859a10 10 0 0 0-2.007-1.523" }
+            path { d: "M2 8.82a15 15 0 0 1 4.177-2.643" }
+            path { d: "M22 8.82a15 15 0 0 0-11.288-3.764" }
+            path { d: "m2 2 20 20" }
         },
         IconName::LinkedIn
         | IconName::Instagram

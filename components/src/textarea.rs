@@ -197,11 +197,7 @@ pub(crate) fn TextAreaControl(
 ) -> Element {
     let binding = use_field_binding();
 
-    let form_class = merge(&[
-        TEXTAREA_FORM_BASE,
-        resize.as_class(),
-        size_classes(size),
-    ]);
+    let form_class = merge(&[TEXTAREA_FORM_BASE, resize.as_class(), size_classes(size)]);
 
     let touch = binding.touch;
 

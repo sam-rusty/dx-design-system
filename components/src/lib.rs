@@ -113,9 +113,9 @@ pub use form::{
 pub use hooks::{use_escape_listener, use_outside_dismiss};
 pub use icon::{Icon, IconName};
 pub use icon_bubble::{IconBubble, IconBubbleColor, IconBubbleSize};
-pub use input::{AutofocusGate, FieldSize, InputBase, InputType};
 #[allow(deprecated)]
 pub use input::InputSize;
+pub use input::{AutofocusGate, FieldSize, InputBase, InputType};
 pub use input_types::{
     EmailInputBase, NumberInputBase, PasswordInputBase, PercentageInputBase, PhoneInputBase,
     TextInputBase, TypedInputBaseProps,

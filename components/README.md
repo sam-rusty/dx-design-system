@@ -488,15 +488,17 @@ When `on_submit` is omitted and FormProvider has an `action`, Form auto-submits 
 
 ### `Input`
 
+Generic form-bound input for HTML types without a dedicated wrapper (url, search, hidden, ...).
+Prefer the typed wrappers (`TextInput`, `EmailInput`, ...) where one exists.
+
 | Prop | Type | Default |
 |------|------|---------|
 | `field` | `impl Into<Field>` (`FormFields`) | required |
 | `r#type` | `InputType` | required |
 | `copyable` / `clearable` / `autofocus` | `bool` | `false` |
-| `format` / `parse` / `filter` | `Option<fn(&str) -> String>` | `None` |
-| `inputmode` | `String` | `""` |
-| `size` | `InputSize` | `Default` |
+| `size` | `FieldSize` | `Default` |
 | `tooltip` | `Option<Element>` | `None` — when set, a `circle-help` icon appears after the label and reveals this content on hover/focus |
+| `class` | `String` | `""` — merged onto the field wrapper |
 
 `InputType`: `Text`, `Email`, `Password`, `Number`, `Url`, `Tel`, `Search`, `Hidden`.
 
@@ -517,18 +519,46 @@ rsx! {
 }
 ```
 
-`InputSize`: `Default` (tall control), `Sm` (compact height and type scale), `Xs` (densest — `h-7`, `text-xs`, for inline/list edit fields).
+`FieldSize`: `Default` (tall control), `Sm` (compact height and type scale), `Xs` (densest — `h-7`, `text-xs`, for inline/list edit fields). Shared by `Input*`, `TextArea`, and `Select`.
 
 ### `InputBase`
 
-Standalone styled `<input>` (no `FormField` wrapper). See [`input.rs`](src/ui/input.rs) for the full prop list.
+Standalone styled `<input>` (no `FormField` wrapper), controlled or uncontrolled. See [`input.rs`](src/input.rs) for the full prop list.
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `size` | `InputSize` | `Default` | |
-| `value` | `Option<Signal<String>>` | `None` | |
-| `on_change` | `Option<EventHandler<String>>` | `None` | receives string value directly |
-| `onkeydown` | `Option<EventHandler<KeyboardEvent>>` | `None` | key-down handler (e.g. submit on `Enter`) |
+| `value` | `ReadSignal<Option<String>>` | `None` | `Some` = controlled (pair with `on_value_change`) |
+| `default_value` | `String` | `""` | initial value when uncontrolled |
+| `on_value_change` | `Callback<String>` | no-op | fires with the new value on every input event |
+| `on_commit` | `Callback<String>` | no-op | fires with the committed value on the change event |
+| `on_blur` / `on_key_down` | `Callback<FocusEvent>` / `Callback<KeyboardEvent>` | no-op | |
+| `r#type` | `InputType` | `Text` | |
+| `size` | `FieldSize` | `Default` | |
+| `disabled` | `ReadSignal<bool>` | `false` | |
+| `trailing` | `Option<Element>` | `None` | absolutely-positioned trailing adornment; requires a `relative` ancestor |
+| `class` / `placeholder` / `id` / `autofocus` / `unstyled` / `aria_invalid` / `aria_describedby` | | | |
+| ...attributes | extends `GlobalAttributes` + `input` | | `name`, `min`, `max`, `step`, `inputmode`, `readonly`, ... |
+
+```rust
+rsx! {
+    InputBase {
+        value: Some(query()),
+        on_value_change: move |v: String| query.set(v),
+        placeholder: "Search…",
+    }
+}
+```
+
+### Typed input bases
+
+Standalone counterparts of the typed form inputs — each owns its type-specific behavior once, so
+the same behavior works with or without a form: `TextInputBase`, `EmailInputBase`,
+`PhoneInputBase` (formatted display, raw digits value), `NumberInputBase` (thousands-separated
+display, raw decimal value, keystroke filter), `PercentageInputBase` (percent display, `min`/`max`
+clamp on commit), `PasswordInputBase` (reveal toggle in the trailing slot).
+
+All share `TypedInputBaseProps` (same shape as `InputBase` minus `r#type`/`trailing`/`unstyled`
+extras); `value` is always the *raw* value. `PercentageInputBase` adds `min`/`max: f64`.
 
 ### `ColorSwatchPicker`
 
@@ -555,16 +585,13 @@ rsx! {
 
 ### `NumberInput` / `PhoneInput` / `TextInput` / `EmailInput` / `PasswordInput` / `PercentageInput`
 
-| Component | Extra props |
-|-----------|-------------|
-| `NumberInput` | `copyable`, `clearable`, `autofocus`, `tooltip` |
-| `PhoneInput` | same |
-| `TextInput` | same |
-| `EmailInput` | same |
-| `PasswordInput` | `autofocus`, `tooltip` |
-| `PercentageInput` | `copyable`, `clearable`, `autofocus`, `min`, `max` (`f64`, defaults `0.0` / `100.0`), `tooltip` |
+All six share one props shape (`TypedInputProps`): `field` (required, `impl Into<Field>`),
+`copyable`, `clearable`, `autofocus` (`bool`, default `false`), `size` (`FieldSize`), `tooltip`
+(`Option<Element>` — `circle-help` hint after the label), `class` (merged onto the field wrapper).
 
-All take `tooltip: Option<Element>` (default `None`): a `circle-help` hint icon rendered after the field label.
+`PercentageInput` adds `min` / `max` (`f64`, defaults `0.0` / `100.0`) — the value is clamped on
+commit. `PasswordInput` includes a reveal (eye) toggle. Formatting/parsing behavior lives in the
+corresponding typed base, so it is identical standalone and in forms.
 
 ### `FormField`
 
@@ -587,7 +614,11 @@ All take `tooltip: Option<Element>` (default `None`): a `circle-help` hint icon 
 
 ### Layout helpers
 
-`FormSet`, `FormGroup`, `FormContent`, `FormTitle`, `FormDescription`, `FormLabel` — use inside `FormProvider` like other examples.
+`FormSet`, `FormGroup`, `FormContent`, `FormTitle`, `FormDescription` — use inside `FormProvider` like other examples.
+
+`FloatingLabel` is the one floating label used by every form-bound field (peer-CSS mode for real
+inputs, signal-driven mode via `floated: Option<ReadSignal<bool>>` for button-based controls like
+Select and the date pickers). `FormLabel` remains as a deprecated alias.
 
 ```rust
 use components::form::{Form, FormGroup, FormProvider, FormSet, Input};
@@ -638,8 +669,10 @@ rsx! {
 | `field` | `impl Into<Field>` | required |
 | `autofocus` | `bool` | `false` |
 | `rows` / `cols` / `minlength` / `maxlength` | `Option<u32>` | `None` |
+| `size` | `FieldSize` | `Default` |
 | `resize` | `TextAreaResize` | `Vertical` |
 | `tooltip` | `Option<Element>` | `None` — `circle-help` hint after the label |
+| `class` | `String` | `""` — merged onto the field wrapper |
 
 ```rust
 use components::{TextArea, TextAreaResize};
@@ -652,15 +685,20 @@ rsx! {
 
 ### `TextAreaBase`
 
-Standalone styled `<textarea>` (no `FormField` wrapper).
+Standalone styled `<textarea>` (no `FormField` wrapper), controlled or uncontrolled.
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `value` | `Option<Signal<String>>` | `None` | |
-| `on_change` | `Option<EventHandler<String>>` | `None` | receives string value directly |
-| `autofocus` | `bool` | `false` | |
-| `rows` / `cols` / `minlength` / `maxlength` | `Option<u32>` | `None` | |
+| `value` | `ReadSignal<Option<String>>` | `None` | `Some` = controlled (pair with `on_value_change`) |
+| `default_value` | `String` | `""` | initial value when uncontrolled |
+| `on_value_change` | `Callback<String>` | no-op | fires with the new value on every input event |
+| `on_commit` | `Callback<String>` | no-op | fires with the committed value on the change event |
+| `on_blur` / `on_key_down` | `Callback<FocusEvent>` / `Callback<KeyboardEvent>` | no-op | |
+| `disabled` | `ReadSignal<bool>` | `false` | |
+| `size` | `FieldSize` | `Default` | |
 | `resize` | `TextAreaResize` | `Vertical` | |
+| `autofocus` | `bool` | `false` | |
+| ...attributes | extends `GlobalAttributes` + `textarea` | | `rows`, `cols`, `minlength`, `maxlength`, `name`, ... |
 
 `textarea_insert_at_cursor(element_id, text)` inserts text at the textarea's (or text `Input`'s)
 caret and keeps a bound `value` signal in sync (dispatches an `input` event). Pass the element's
@@ -760,15 +798,22 @@ rsx! {
 
 | Prop | Type | Default |
 |------|------|---------|
-| `field` | `Field` | required |
+| `field` | `impl Into<Field>` | required |
 | `class` | `String` | `""` |
 | `tooltip` | `Option<Element>` | `None` — `circle-help` hint after the inline label |
 
-```rust
-use components::Checkbox;
+`CheckboxBase` (standalone): `checked: ReadSignal<Option<bool>>` (`Some` = controlled),
+`default_checked: bool`, `on_checked_change: Callback<bool>`, `disabled: ReadSignal<bool>`,
+`class`, aria props, plus spread attributes.
 
-view! {
-    <Checkbox field=MyForm::agree />
+```rust
+use components::{Checkbox, CheckboxBase};
+
+rsx! {
+    CheckboxBase {
+        checked: Some(is_selected()),
+        on_checked_change: move |on: bool| is_selected.set(on),
+    }
 }
 
 rsx! {
@@ -819,9 +864,13 @@ view! {
 | `searchable` / `multiple` | `bool` | `false` |
 | `limit` | `usize` | `0` |
 | `copyable` / `clearable` | `bool` | `false` |
+| `size` | `FieldSize` | `Default` |
 | `options` | `&'static [(&'static str, &'static str)]` | `&[]` |
 | `tooltip` | `Option<Element>` | `None` — `circle-help` hint after the floating label |
 | `children` | `Option<Children>` | `None` |
+
+`SelectBase` (standalone, with `use_select_contexts(value, on_change: Callback<String>, dynamic,
+limit, multiple)`): `disabled` is `ReadSignal<bool>`, `size` is `FieldSize`.
 
 ```rust
 use components::Select;
@@ -843,12 +892,12 @@ Stored values: `DatePicker` → `YYYY-MM-DD`; `DateRangePicker` → JSON `["YYYY
 
 | Component | Props |
 |-----------|--------|
-| `DatePicker` | `field` (`#[props(into)]`), `class`, `min: Option<utils::types::Date>`, `max: Option<utils::types::Date>`, `disabled: Option<Signal<bool>>` |
-| `DateRangePicker` | `field`, `class`, `min: Option<utils::types::Date>`, `max: Option<utils::types::Date>`, `disabled: Option<Signal<bool>>` |
-| `DateTimePicker` | `field`, `class`, `min: Option<utils::types::DateTime>`, `max: Option<utils::types::DateTime>`, `disabled: Option<Signal<bool>>` |
-| `DatePickerBase` | standalone (no form binding): `value: Option<ReadSignal<String>>` (`YYYY-MM-DD`), `on_change: Option<EventHandler<String>>`, `class`, `disabled`, `min`/`max: Option<Signal<utils::types::Date>>`, `is_open: Option<Signal<bool>>` |
+| `DatePicker` | `field` (`impl Into<Field>`), `class`, `min: Option<utils::types::Date>`, `max: Option<utils::types::Date>`, `disabled: ReadSignal<bool>`, `tooltip: Option<Element>` |
+| `DateRangePicker` | `field`, `class`, `min: Option<utils::types::Date>`, `max: Option<utils::types::Date>`, `disabled: ReadSignal<bool>`, `tooltip` |
+| `DateTimePicker` | `field`, `class`, `min: Option<utils::types::DateTime>`, `max: Option<utils::types::DateTime>`, `disabled: ReadSignal<bool>`, `tooltip` |
+| `DatePickerBase` | standalone (no form binding): `value: ReadSignal<Option<String>>` (`YYYY-MM-DD`; `Some` = controlled), `on_value_change: Callback<String>`, `class`, `disabled: ReadSignal<bool>`, `min`/`max: Option<Signal<utils::types::Date>>`, `is_open: Option<Signal<bool>>` |
 
-Use `DatePickerBase` when you need a controlled date picker outside a `FormProvider` (drive it with your own `value`/`on_change`); the `field`-bound `DatePicker` is preferred inside forms. `min` and `max` accept typed values from `utils::types` (`Date` for `DatePicker`/`DateRangePicker`; `DateTime` for `DateTimePicker`). Dates outside the range are rendered disabled in the calendar and rejected in text-input mode. `Date::default()` / `DateTime::default()` return today / today-at-midnight and are convenient for "no past" or "no future" constraints.
+Use `DatePickerBase` when you need a controlled date picker outside a `FormProvider` (drive it with your own `value`/`on_value_change`); the `field`-bound `DatePicker` is preferred inside forms. `DateRangePickerBase` / `DateTimePickerBase` follow the same shape. `min` and `max` accept typed values from `utils::types` (`Date` for `DatePicker`/`DateRangePicker`; `DateTime` for `DateTimePicker`). Dates outside the range are rendered disabled in the calendar and rejected in text-input mode. `Date::default()` / `DateTime::default()` return today / today-at-midnight and are convenient for "no past" or "no future" constraints.
 
 ```rust
 use components::{DatePicker, DateRangePicker, DateTimePicker};

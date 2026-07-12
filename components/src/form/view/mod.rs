@@ -4,8 +4,8 @@ mod binding;
 mod components;
 mod layout;
 
-pub(crate) use binding::use_field_binding;
 pub use self::components::*;
+pub(crate) use binding::use_field_binding;
 pub use layout::*;
 
 #[cfg(test)]

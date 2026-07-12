@@ -4,9 +4,9 @@ use crate::{Alert, AlertVariant};
 use dioxus::prelude::*;
 use ds_utils::format::merge;
 
+use super::use_field_binding;
 use crate::copyable::copy_to_clipboard;
 use crate::field_name::Field;
-use super::use_field_binding;
 use crate::form::{FieldContext, Form as FormHook, FormContext, FormData, FormSubmit};
 use crate::icon::{Icon, IconName};
 use crate::input::{FieldSize, InputBase, InputType};
@@ -416,7 +416,10 @@ pub(crate) enum TypedKind {
     Email,
     Phone,
     Number,
-    Percentage { min: f64, max: f64 },
+    Percentage {
+        min: f64,
+        max: f64,
+    },
     Password,
 }
 
@@ -428,7 +431,8 @@ pub(crate) fn BoundInput(
     #[props(default)] size: FieldSize,
     #[props(default)] autofocus: bool,
     /// Reserve end padding for a trailing adornment (actions / reveal button).
-    #[props(default)] reserve_end: bool,
+    #[props(default)]
+    reserve_end: bool,
     #[props(default)] class: String,
     #[props(default)] unstyled: bool,
     #[props(default)] placeholder: Option<String>,

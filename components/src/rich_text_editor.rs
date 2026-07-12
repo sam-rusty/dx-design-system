@@ -235,8 +235,7 @@ pub fn RichTextEditorBase(
             use_signal(move || value.map(|s| s.peek().clone()).unwrap_or_default());
         let mut link_open = use_signal(|| false);
         let mut link_url = use_signal(String::new);
-        let link_url_value: ReadSignal<Option<String>> =
-            use_memo(move || Some(link_url())).into();
+        let link_url_value: ReadSignal<Option<String>> = use_memo(move || Some(link_url())).into();
         let mut color_open = use_signal(|| false);
         let mut font_size_open = use_signal(|| false);
 

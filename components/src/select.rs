@@ -525,7 +525,11 @@ pub fn SelectBase(
             "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-muted/50",
             "aria-invalid:border-destructive aria-invalid:ring-destructive/20 focus:aria-invalid:border-destructive focus:aria-invalid:ring-1",
             if is_multiple { sz_multi } else { "" },
-            if is_multiple { "flex-wrap gap-1 pe-10" } else { "" },
+            if is_multiple {
+                "flex-wrap gap-1 pe-10"
+            } else {
+                ""
+            },
             &class,
         )
     };

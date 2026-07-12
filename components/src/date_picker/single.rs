@@ -25,6 +25,7 @@ pub fn DatePickerBase(
 
     let mut input_mode = use_signal(|| false);
     let mut input_value = use_signal(String::new);
+    let input_value_read: ReadSignal<Option<String>> = use_memo(move || Some(input_value())).into();
 
     let current_value = value.unwrap_or_else(|| use_signal(String::new).into());
 
@@ -124,7 +125,8 @@ pub fn DatePickerBase(
                                 label { class: "block text-xs font-medium text-muted-foreground mb-2", "Date" }
                                 InputBase {
                                     placeholder: "YYYY-MM-DD".to_string(),
-                                    value: input_value,
+                                    value: input_value_read,
+                                    on_value_change: move |v: String| input_value.set(v),
                                 }
                             }
                         } else {

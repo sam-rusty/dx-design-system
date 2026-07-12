@@ -34,6 +34,7 @@ pub(crate) mod file_upload;
 pub(crate) mod focus;
 pub(crate) mod icon_bubble;
 pub(crate) mod input;
+pub(crate) mod input_types;
 pub(crate) mod label;
 pub(crate) mod layout;
 pub(crate) mod link;
@@ -112,7 +113,13 @@ pub use form::{
 pub use hooks::{use_escape_listener, use_outside_dismiss};
 pub use icon::{Icon, IconName};
 pub use icon_bubble::{IconBubble, IconBubbleColor, IconBubbleSize};
-pub use input::{AutofocusGate, InputBase, InputSize, InputType, PasswordInputBase};
+pub use input::{AutofocusGate, FieldSize, InputBase, InputType};
+#[allow(deprecated)]
+pub use input::InputSize;
+pub use input_types::{
+    EmailInputBase, NumberInputBase, PasswordInputBase, PercentageInputBase, PhoneInputBase,
+    TextInputBase, TypedInputBaseProps,
+};
 pub use label::Label;
 pub use layout::{
     Column, Container, Flex, FlexAlign, FlexDirection, FlexGap, FlexGridCols, FlexJustify,

@@ -3,7 +3,7 @@ use strum_macros::AsRefStr;
 
 use ds_utils::format::merge;
 
-use crate::icon::{Icon, IconName};
+use crate::hooks::use_controlled;
 
 /// Reactive gate an app can provide around a screen: while it reads `false`,
 /// [`InputBase`] holds its autofocus. Lets a nav host defer the keyboard until
@@ -12,13 +12,18 @@ use crate::icon::{Icon, IconName};
 #[derive(Clone, Copy)]
 pub struct AutofocusGate(pub ReadSignal<bool>);
 
+/// Visual size scale shared by the field family (`InputBase`, the typed input
+/// bases, and their form-bound wrappers).
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
-pub enum InputSize {
+pub enum FieldSize {
     #[default]
     Default,
     Sm,
     Xs,
 }
+
+#[deprecated(note = "renamed to `FieldSize`")]
+pub type InputSize = FieldSize;
 
 /// Field surface is token-driven so each app themes it (radius / background /
 /// border) without forking the component. `theme.css` supplies the defaults
@@ -52,7 +57,7 @@ struct SizeTokens {
     file_text: &'static str,
 }
 
-impl InputSize {
+impl FieldSize {
     fn tokens(self) -> SizeTokens {
         match self {
             Self::Default => SizeTokens {
@@ -86,10 +91,10 @@ impl InputSize {
     }
 
     /// Complete standalone [`InputBase`] class (root + file-picker + interaction states).
-    /// `has_actions` reserves trailing padding for an overlaid action button.
-    fn standalone_full(self, has_actions: bool) -> String {
+    /// `trailing` reserves end padding for an overlaid trailing adornment.
+    fn standalone_full(self, trailing: bool) -> String {
         let t = self.tokens();
-        let padding = if has_actions { t.pr } else { t.px };
+        let padding = if trailing { t.pr } else { t.px };
         merge(&[
             STANDALONE_BASE,
             t.height,
@@ -101,14 +106,15 @@ impl InputSize {
         ])
     }
 
-    /// Floating-label form `Input` control (`peer block`).
-    pub fn form_floating_peer_merge(self, has_actions: bool) -> String {
+    /// Floating-label form input control (`peer block`).
+    /// `trailing` reserves end padding for an overlaid trailing adornment.
+    pub fn form_floating_peer_merge(self, trailing: bool) -> String {
         let t = self.tokens();
-        let padding = if has_actions { t.pr } else { t.px };
+        let padding = if trailing { t.pr } else { t.px };
         merge(&[FORM_BASE, t.height, t.py, t.text, padding])
     }
 
-    /// Full class string when [`InputFormControl`] receives an empty override (matches legacy default).
+    /// Full class string for form-bound controls that receive no class override.
     pub fn form_control_fallback_merge(self) -> String {
         let t = self.tokens();
         merge(&[FORM_BASE, t.height, t.px, t.py, t.text])
@@ -129,53 +135,97 @@ pub enum InputType {
     Hidden,
 }
 
-#[component]
-pub fn InputBase(
-    #[props(default)] class: String,
-    #[props(default)] r#type: InputType,
-    #[props(default)] size: InputSize,
-    #[props(default)] placeholder: Option<String>,
-    #[props(default)] name: Option<String>,
-    #[props(default)] id: Option<String>,
-    #[props(default)] title: Option<String>,
-    #[props(default)] disabled: bool,
-    #[props(default)] readonly: bool,
-    #[props(default)] required: bool,
-    #[props(default)] autofocus: bool,
-    #[props(default)] min: Option<String>,
-    #[props(default)] max: Option<String>,
-    #[props(default)] step: Option<String>,
-    #[props(default)] value: Option<Signal<String>>,
-    #[props(default)] static_value: Option<String>,
-    #[props(default)] on_change: Option<EventHandler<String>>,
-    #[props(default)] onchange: Option<EventHandler<FormEvent>>,
-    #[props(default)] onblur: Option<EventHandler<FocusEvent>>,
-    #[props(default)] onkeydown: Option<EventHandler<KeyboardEvent>>,
-    #[props(default)] inputmode: Option<String>,
-    #[props(default)] aria_invalid: Option<String>,
-    #[props(default)] aria_describedby: Option<String>,
-    #[props(default)] unstyled: bool,
-    #[props(default)] enterkeyhint: Option<String>,
-    #[props(default)] has_actions: bool,
-) -> Element {
-    let merged_class = if unstyled {
-        class
+/// Props for [`InputBase`].
+#[derive(Props, Clone, PartialEq)]
+pub struct InputBaseProps {
+    /// Controlled value. `Some` makes the caller the source of truth (pair with
+    /// `on_value_change`); `None` leaves the input uncontrolled.
+    #[props(default)]
+    pub value: ReadSignal<Option<String>>,
+    /// Initial value when uncontrolled.
+    #[props(default)]
+    pub default_value: String,
+    /// Fired with the new value on every input event.
+    #[props(default)]
+    pub on_value_change: Callback<String>,
+    /// Fired with the committed value on the change event (blur / Enter).
+    #[props(default)]
+    pub on_commit: Callback<String>,
+    /// Fired when the input loses focus.
+    #[props(default)]
+    pub on_blur: Callback<FocusEvent>,
+    /// Fired on keydown.
+    #[props(default)]
+    pub on_key_down: Callback<KeyboardEvent>,
+    /// HTML input type.
+    #[props(default)]
+    pub r#type: InputType,
+    /// Visual size (shared [`FieldSize`] scale).
+    #[props(default)]
+    pub size: FieldSize,
+    /// Extra classes merged into the base style; the full class list when `unstyled`.
+    #[props(default)]
+    pub class: String,
+    /// Placeholder text. Defaults to a single space so the floating-label
+    /// `placeholder-shown` mechanism keeps working.
+    #[props(default)]
+    pub placeholder: Option<String>,
+    /// DOM id. Form bindings set this to the field name so labels target it.
+    #[props(default)]
+    pub id: Option<String>,
+    /// Whether the input is disabled.
+    #[props(default)]
+    pub disabled: ReadSignal<bool>,
+    /// Autofocus on mount (deferred by [`AutofocusGate`] when one is provided).
+    #[props(default)]
+    pub autofocus: bool,
+    /// Skip the built-in styling entirely; `class` is used verbatim.
+    #[props(default)]
+    pub unstyled: bool,
+    /// `aria-invalid` value (form bindings set `"true"` on validation failure).
+    #[props(default)]
+    pub aria_invalid: Option<String>,
+    /// `aria-describedby` target (the field's error element id).
+    #[props(default)]
+    pub aria_describedby: Option<String>,
+    /// Trailing adornment (reveal / copy / clear buttons). Rendered absolutely
+    /// positioned after the input and reserves end padding — the nearest
+    /// `relative` ancestor is the positioning context (form wrappers provide
+    /// one; standalone callers must supply their own).
+    #[props(default)]
+    pub trailing: Option<Element>,
+    /// Additional attributes (`name`, `min`, `max`, `step`, `inputmode`,
+    /// `readonly`, `required`, `enterkeyhint`, ...).
+    #[props(extends = GlobalAttributes, extends = input)]
+    pub attributes: Vec<Attribute>,
+}
+
+pub fn InputBase(props: InputBaseProps) -> Element {
+    let has_trailing = props.trailing.is_some();
+    let merged_class = if props.unstyled {
+        props.class.clone()
     } else {
-        let base_class = size.standalone_full(has_actions);
-        if class.is_empty() {
+        let base_class = props.size.standalone_full(has_trailing);
+        if props.class.is_empty() {
             base_class
         } else {
-            merge(&[&base_class, &class])
+            merge(&[&base_class, &props.class])
         }
     };
 
-    let type_str = r#type.as_ref();
+    let (value, set_value) = use_controlled(
+        props.value,
+        props.default_value.clone(),
+        props.on_value_change,
+    );
+
+    let type_str = props.r#type.as_ref();
     // Floating-label hack needs a non-empty placeholder; default to a static space.
-    let actual_placeholder = placeholder.as_deref().unwrap_or(" ");
-    let current_value = value.map(|s| s()).or(static_value).unwrap_or_default();
+    let actual_placeholder = props.placeholder.clone().unwrap_or_else(|| " ".to_string());
 
     // Autofocus waits for the AutofocusGate (when provided) so the keyboard
     // doesn't open mid-transition; without a gate it fires on mount.
+    let autofocus = props.autofocus;
     let gate = try_consume_context::<AutofocusGate>();
     let mut mounted = use_signal(|| None::<std::rc::Rc<MountedData>>);
     let mut focus_fired = use_signal(|| false);
@@ -190,6 +240,11 @@ pub fn InputBase(
         });
     });
 
+    let on_commit = props.on_commit;
+    let on_blur = props.on_blur;
+    let on_key_down = props.on_key_down;
+    let disabled = props.disabled;
+
     rsx! {
         input {
             "data-name": "Input",
@@ -197,88 +252,21 @@ pub fn InputBase(
             class: "{merged_class}",
             placeholder: actual_placeholder,
             onmounted: move |evt: MountedEvent| mounted.set(Some(evt.data())),
-            name,
-            id,
-            title,
-            disabled,
-            readonly,
-            required,
-            min,
-            max,
-            step,
-            inputmode,
-            "aria-invalid": aria_invalid,
-            "aria-describedby": aria_describedby,
-            "enterkeyhint": enterkeyhint,
-            value: "{current_value}",
-            oninput: move |ev| {
-                if let Some(mut signal) = value {
-                    signal.set(ev.value());
-                }
-                if let Some(handler) = &on_change {
-                    handler.call(ev.value());
-                }
-            },
-            onchange: move |ev| {
-                if let Some(handler) = &onchange {
-                    handler.call(ev);
-                }
-            },
-            onblur: move |ev| {
-                if let Some(handler) = &onblur {
-                    handler.call(ev);
-                }
-            },
-            onkeydown: move |ev| {
-                if let Some(handler) = &onkeydown {
-                    handler.call(ev);
-                }
-            },
+            id: props.id.clone(),
+            disabled: disabled(),
+            "aria-invalid": props.aria_invalid.clone(),
+            "aria-describedby": props.aria_describedby.clone(),
+            value: value(),
+            oninput: move |ev| set_value(ev.value()),
+            onchange: move |ev: FormEvent| on_commit.call(ev.value()),
+            onblur: move |ev| on_blur.call(ev),
+            onkeydown: move |ev| on_key_down.call(ev),
+            ..props.attributes,
         }
-    }
-}
-
-/// Standalone password input with a reveal toggle — the signal-bound sibling of
-/// the form-bound `PasswordInput`. The trailing eye button swaps the control
-/// between `Password` and `Text`; the input reserves room for it via `has_actions`.
-#[component]
-pub fn PasswordInputBase(
-    #[props(default)] class: String,
-    #[props(default)] placeholder: Option<String>,
-    #[props(default)] value: Option<Signal<String>>,
-    #[props(default)] disabled: bool,
-    #[props(default)] autofocus: bool,
-    #[props(default)] onkeydown: Option<EventHandler<KeyboardEvent>>,
-) -> Element {
-    let mut revealed = use_signal(|| false);
-    let input_type = if revealed() {
-        InputType::Text
-    } else {
-        InputType::Password
-    };
-    rsx! {
-        div { class: "relative w-full",
-            InputBase {
-                r#type: input_type,
-                class,
-                placeholder,
-                value,
-                disabled,
-                autofocus,
-                onkeydown,
-                has_actions: true,
-            }
-            button {
-                r#type: "button",
-                tabindex: "-1",
-                "aria-label": if revealed() { "Hide password" } else { "Show password" },
-                class: "absolute end-2 top-1/2 -translate-y-1/2 grid place-items-center size-9 \
-                        rounded-full text-muted-foreground hover:text-foreground transition-colors",
-                onclick: move |_| revealed.toggle(),
-                Icon {
-                    name: if revealed() { IconName::EyeOff } else { IconName::Eye },
-                    class: "size-5",
-                }
+        if let Some(trailing) = props.trailing {
+            div {
+                class: "absolute end-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 z-10",
+                {trailing}
             }
         }
     }

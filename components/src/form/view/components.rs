@@ -2,16 +2,18 @@ use std::sync::Arc;
 
 use crate::{Alert, AlertVariant};
 use dioxus::prelude::*;
-use ds_utils::format::{
-    clamp_percent, filter_percent, format_number, format_percent, format_phone, merge,
-    parse_number, parse_percent, parse_phone,
-};
+use ds_utils::format::merge;
 
 use crate::copyable::copy_to_clipboard;
 use crate::field_name::Field;
+use super::use_field_binding;
 use crate::form::{FieldContext, Form as FormHook, FormContext, FormData, FormSubmit};
 use crate::icon::{Icon, IconName};
-use crate::input::{InputBase, InputSize, InputType};
+use crate::input::{FieldSize, InputBase, InputType};
+use crate::input_types::{
+    EmailInputBase, NumberInputBase, PasswordInputBase, PercentageInputBase,
+    PercentageInputBaseProps, PhoneInputBase, TextInputBase, TypedInputBaseProps,
+};
 use crate::label::Label;
 use crate::separator::Separator;
 use crate::stepper::{auto_register_field, unregister_auto_field};
@@ -206,407 +208,134 @@ pub fn FormField(field: Field, children: Element) -> Element {
     }
 }
 
-#[component]
-pub fn Input(
-    #[props(into)] field: Field,
-    r#type: InputType,
-    #[props(default)] copyable: bool,
-    #[props(default)] clearable: bool,
-    #[props(default)] autofocus: bool,
-    #[props(default)] format: Option<fn(&str) -> String>,
-    #[props(default)] parse: Option<fn(&str) -> String>,
-    #[props(default)] filter: Option<fn(&str) -> String>,
-    #[props(default)] inputmode: String,
-    #[props(default)] size: InputSize,
-    #[props(default)] tooltip: Option<Element>,
-) -> Element {
-    let has_actions = copyable || clearable;
-
-    let input_class = InputSize::form_floating_peer_merge(size, has_actions);
-
-    rsx! {
-        FormField { field,
-            div { class: "relative w-full mt-2",
-                InputFormControl {
-                    input_type: r#type,
-                    size,
-                    class: input_class,
-                    autofocus,
-                    format,
-                    parse,
-                    filter,
-                    inputmode,
-                }
-                FormLabel { tooltip, "{field.label}" }
-                if has_actions {
-                    FieldActions { copyable, clearable }
-                }
-            }
-            FormError {}
-        }
-    }
+/// Props for [`FloatingLabel`].
+#[derive(Props, Clone, PartialEq)]
+pub struct FloatingLabelProps {
+    /// Extra classes merged into the label style.
+    #[props(default)]
+    pub class: String,
+    /// Explicit label target; defaults to the surrounding field's name.
+    #[props(default)]
+    pub html_for: String,
+    /// Textarea positioning (top-anchored resting state) for the peer mechanism.
+    #[props(default)]
+    pub textarea: bool,
+    /// Float trigger for button-based controls (open state). `None` uses the
+    /// CSS `peer` mechanism (real inputs); `Some` floats when the field has a
+    /// value or the signal reads true.
+    #[props(default)]
+    pub floated: Option<ReadSignal<bool>>,
+    /// Help tooltip rendered inline after the label text.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+    pub children: Element,
 }
 
-fn filter_numeric(input: &str) -> String {
-    let mut result = String::with_capacity(input.len());
-    let mut has_dot = false;
-    for (i, c) in input.chars().enumerate() {
-        if c.is_ascii_digit() || (c == '-' && i == 0) || (c == '.' && !has_dot) {
-            if c == '.' {
-                has_dot = true;
+/// The one floating label for the form family. Two mechanisms, one home for
+/// the typography/positioning tokens: CSS `peer` for real inputs, signal-driven
+/// for button-based controls (Select, date pickers).
+pub fn FloatingLabel(props: FloatingLabelProps) -> Element {
+    let field_ctx = try_use_context::<FieldContext>();
+    let form_ctx = try_use_context::<FormContext>();
+
+    let field_name = if props.html_for.is_empty() {
+        field_ctx
+            .as_ref()
+            .map(|ctx| String::from(&*ctx.name))
+            .unwrap_or_default()
+    } else {
+        props.html_for.clone()
+    };
+
+    let name_arc: Option<Arc<str>> = field_ctx.map(|ctx| ctx.name.clone());
+    let has_value = {
+        let name = name_arc.clone();
+        use_memo(move || match (&name, &form_ctx) {
+            (Some(n), Some(fc)) => fc
+                .values_signal
+                .with(|v| v.get(&**n).is_some_and(|s| !s.is_empty())),
+            _ => false,
+        })
+    };
+    let invalid = {
+        let name = name_arc.clone();
+        use_memo(move || match (&name, &form_ctx) {
+            (Some(n), Some(fc)) => {
+                fc.touched_signal.with(|t| t.contains(&**n))
+                    && fc
+                        .errors_signal
+                        .with(|e| e.get(&**n).is_some_and(|err| err.is_some()))
             }
-            result.push(c);
-        }
-    }
-    // Strip leading zeros from the integer part.
-    let negative = result.starts_with('-');
-    let abs = if negative { &result[1..] } else { &result[..] };
-    if abs.is_empty() {
-        return result;
-    }
-    let stripped = match abs.find('.') {
-        Some(dot_pos) => {
-            let int_part = abs[..dot_pos].trim_start_matches('0');
-            let int_part = if int_part.is_empty() { "0" } else { int_part };
-            format!("{}{}", int_part, &abs[dot_pos..])
-        }
-        None => {
-            let s = abs.trim_start_matches('0');
-            if s.is_empty() {
-                "0".to_string()
+            _ => false,
+        })
+    };
+
+    match props.floated {
+        // Signal-driven: float when the field has a value or the control is open.
+        Some(open) => {
+            let is_floated = has_value() || open();
+            let base = "absolute start-3 z-10 pointer-events-none bg-[var(--field-notch-bg)] \
+                 px-1 text-muted-foreground transition-all duration-200 origin-[0] \
+                 inline-flex items-center gap-1.5";
+            let state = if is_floated {
+                "top-0 -translate-y-1/2 scale-75 text-sm font-medium"
             } else {
-                s.to_string()
+                "top-1/2 -translate-y-1/2 scale-100 text-sm font-normal"
+            };
+            let accent = if invalid() {
+                "text-destructive"
+            } else if open() {
+                "text-primary"
+            } else {
+                ""
+            };
+            let label_class = merge(&[base, state, accent, &props.class]);
+            rsx! {
+                label {
+                    "data-name": "FloatingLabel",
+                    class: "{label_class}",
+                    r#for: "{field_name}",
+                    {props.children}
+                    if let Some(t) = props.tooltip {
+                        LabelHint { tooltip: t }
+                    }
+                }
             }
         }
-    };
-    if negative {
-        format!("-{}", stripped)
-    } else {
-        stripped
-    }
-}
+        // CSS peer: the input's placeholder/focus state drives the float.
+        None => {
+            let placeholder_shown = if props.textarea {
+                "peer-placeholder-shown:top-[15px] peer-placeholder-shown:translate-y-0 peer-placeholder-shown:scale-100 peer-placeholder-shown:font-normal"
+            } else {
+                "peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:scale-100 peer-placeholder-shown:font-normal"
+            };
 
-#[component]
-pub fn NumberInput(
-    #[props(into)] field: Field,
-    #[props(default)] copyable: bool,
-    #[props(default)] clearable: bool,
-    #[props(default)] autofocus: bool,
-    #[props(default)] tooltip: Option<Element>,
-) -> Element {
-    let fmt: Option<fn(&str) -> String> = Some(format_number);
-    let prs: Option<fn(&str) -> String> = Some(parse_number);
-    let flt: Option<fn(&str) -> String> = Some(filter_numeric);
-    rsx! {
-        Input {
-            field,
-            r#type: InputType::Text,
-            copyable,
-            clearable,
-            autofocus,
-            format: fmt,
-            parse: prs,
-            filter: flt,
-            inputmode: "decimal".to_string(),
-            tooltip,
-        }
-    }
-}
+            let merged_class = merge(&[
+                "absolute start-3 top-0 z-10 origin-[0] -translate-y-1/2 transform bg-[var(--field-notch-bg)] peer-[:placeholder-shown:not(:focus)]:bg-transparent px-1 text-sm font-medium text-muted-foreground duration-200 scale-75 pointer-events-none",
+                placeholder_shown,
+                "peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:scale-75 peer-focus:font-medium peer-focus:text-primary",
+                "peer-data-[invalid=true]:text-destructive peer-focus:peer-data-[invalid=true]:text-destructive",
+                "group-data-[disabled=true]/field:opacity-50",
+                &props.class,
+            ]);
 
-#[component]
-pub fn PercentageInput(
-    #[props(into)] field: Field,
-    #[props(default)] copyable: bool,
-    #[props(default)] clearable: bool,
-    #[props(default)] autofocus: bool,
-    #[props(default = 0.0)] min: f64,
-    #[props(default = 100.0)] max: f64,
-    #[props(default)] tooltip: Option<Element>,
-) -> Element {
-    let fmt: Option<fn(&str) -> String> = Some(format_percent);
-    let prs: Option<fn(&str) -> String> = Some(parse_percent);
-    let flt: Option<fn(&str) -> String> = Some(filter_percent);
-
-    // Read `FormContext` once in the render path. It is `Copy`, so the blur
-    // handler captures a copy rather than calling `use_context` (a hook) outside
-    // render — which would panic. `field.name` is `&'static str`, so it is
-    // captured directly (no per-render `to_string`).
-    let form_ctx = use_context::<FormContext>();
-    let field_name = field.name;
-    let on_blur = move |_: FocusEvent| {
-        let raw = form_ctx
-            .values_signal
-            .peek()
-            .get(field_name)
-            .cloned()
-            .unwrap_or_default();
-        let clamped = clamp_percent(&raw, min, max);
-        if clamped != raw {
-            form_ctx.set_value.read()(field_name, clamped);
-        }
-    };
-
-    rsx! {
-        div { onfocusout: on_blur,
-            Input {
-                field,
-                r#type: InputType::Text,
-                copyable,
-                clearable,
-                autofocus,
-                format: fmt,
-                parse: prs,
-                filter: flt,
-                inputmode: "decimal".to_string(),
-                tooltip,
+            rsx! {
+                Label {
+                    data_name: "FloatingLabel".to_string(),
+                    class: merged_class,
+                    html_for: field_name,
+                    {props.children}
+                    if let Some(t) = props.tooltip {
+                        LabelHint { tooltip: t }
+                    }
+                }
             }
         }
     }
 }
 
 #[component]
-pub fn PhoneInput(
-    #[props(into)] field: Field,
-    #[props(default)] copyable: bool,
-    #[props(default)] clearable: bool,
-    #[props(default)] autofocus: bool,
-    #[props(default)] tooltip: Option<Element>,
-) -> Element {
-    let fmt: Option<fn(&str) -> String> = Some(format_phone);
-    let prs: Option<fn(&str) -> String> = Some(parse_phone);
-    rsx! {
-        Input {
-            field,
-            r#type: InputType::Tel,
-            copyable,
-            clearable,
-            autofocus,
-            format: fmt,
-            parse: prs,
-            tooltip,
-        }
-    }
-}
-
-#[component]
-pub fn TextInput(
-    #[props(into)] field: Field,
-    #[props(default)] copyable: bool,
-    #[props(default)] clearable: bool,
-    #[props(default)] autofocus: bool,
-    #[props(default)] tooltip: Option<Element>,
-) -> Element {
-    rsx! {
-        Input {
-            field,
-            r#type: InputType::Text,
-            copyable,
-            clearable,
-            autofocus,
-            tooltip,
-        }
-    }
-}
-
-/// Chromeless text field — no floating label, no border/background of its own.
-/// The caller styles it via `class` (the control renders `unstyled`), so it can
-/// sit inside a custom surface (an editable card cell, an inline row).
-#[component]
-pub fn BareTextInput(
-    #[props(into)] field: Field,
-    #[props(default)] class: String,
-    #[props(default)] placeholder: String,
-    #[props(default)] autofocus: bool,
-) -> Element {
-    rsx! {
-        FormField { field,
-            InputFormControl {
-                input_type: InputType::Text,
-                class,
-                placeholder,
-                autofocus,
-                unstyled: true,
-            }
-        }
-    }
-}
-
-#[component]
-pub fn EmailInput(
-    #[props(into)] field: Field,
-    #[props(default)] copyable: bool,
-    #[props(default)] clearable: bool,
-    #[props(default)] autofocus: bool,
-    #[props(default)] tooltip: Option<Element>,
-) -> Element {
-    rsx! {
-        Input {
-            field,
-            r#type: InputType::Email,
-            copyable,
-            clearable,
-            autofocus,
-            tooltip,
-        }
-    }
-}
-
-#[component]
-pub fn PasswordInput(
-    #[props(into)] field: Field,
-    #[props(default)] autofocus: bool,
-    #[props(default)] tooltip: Option<Element>,
-) -> Element {
-    rsx! {
-        Input {
-            field,
-            r#type: InputType::Password,
-            autofocus,
-            tooltip,
-        }
-    }
-}
-
-/// Computes the new cursor position after reformatting an input value.
-#[allow(dead_code)]
-fn compute_cursor(
-    old_formatted: &str,
-    new_formatted: &str,
-    old_cursor: u32,
-    parse: fn(&str) -> String,
-) -> u32 {
-    let pos = old_cursor as usize;
-    let before = &old_formatted[..pos.min(old_formatted.len())];
-    let raw_pos = parse(before).len();
-
-    let mut prev_parsed_len = 0usize;
-    let mut matched_end: Option<usize> = None;
-    for (i, ch) in new_formatted.char_indices() {
-        let end = i + ch.len_utf8();
-        let parsed_len = parse(&new_formatted[..end]).len();
-        if parsed_len > raw_pos {
-            return matched_end.unwrap_or(i) as u32;
-        }
-        if parsed_len == raw_pos && prev_parsed_len < raw_pos && matched_end.is_none() {
-            matched_end = Some(end);
-        }
-        if matched_end.is_some() && parsed_len == raw_pos {
-            matched_end = Some(end);
-        }
-        prev_parsed_len = parsed_len;
-    }
-    new_formatted.len() as u32
-}
-
-#[component]
-pub(crate) fn InputFormControl(
-    input_type: InputType,
-    #[props(default)] size: InputSize,
-    #[props(default)] class: String,
-    #[props(default)] autofocus: bool,
-    #[props(default = " ".to_string())] placeholder: String,
-    #[props(default)] unstyled: bool,
-    #[props(default)] format: Option<fn(&str) -> String>,
-    #[props(default)] parse: Option<fn(&str) -> String>,
-    #[props(default)] filter: Option<fn(&str) -> String>,
-    #[props(default)] inputmode: String,
-) -> Element {
-    let field_ctx = use_context::<FieldContext>();
-    let field_name = field_ctx.name.clone();
-    let form_ctx = use_context::<FormContext>();
-
-    let input_class = if class.is_empty() {
-        size.form_control_fallback_merge()
-    } else {
-        class
-    };
-
-    let id = String::from(&*field_name);
-    let aria_describedby = format!("{}-error", field_name);
-    let inputmode_opt = if inputmode.is_empty() {
-        None
-    } else {
-        Some(inputmode.clone())
-    };
-
-    let is_disabled = form_ctx.disabled.map(|d| d()).unwrap_or(false);
-
-    let is_touched = form_ctx.touched_signal.with(|t| t.contains(&*field_name));
-    let has_error = form_ctx
-        .errors_signal
-        .with(|e| e.get(&*field_name).is_some_and(|err| err.is_some()));
-    let aria_invalid = if is_touched && has_error {
-        Some("true".to_string())
-    } else {
-        None
-    };
-
-    let raw = form_ctx
-        .values_signal
-        .with(|v| v.get(&*field_name).cloned().unwrap_or_default());
-    let display_value = match format {
-        Some(fmt) => fmt(&raw),
-        None => raw,
-    };
-
-    let fn_clone = field_name.clone();
-    rsx! {
-        InputBase {
-            r#type: input_type,
-            size,
-            id,
-            placeholder,
-            unstyled,
-            class: input_class,
-            disabled: is_disabled,
-            autofocus,
-            aria_describedby,
-            aria_invalid,
-            inputmode: inputmode_opt,
-            static_value: Some(display_value),
-            on_change: EventHandler::new({
-                let field_name = fn_clone.clone();
-                move |raw_input: String| {
-                    let val = match filter {
-                        Some(f) => f(&raw_input),
-                        None => raw_input.clone(),
-                    };
-                    let raw = match parse {
-                        Some(p) => p(&val),
-                        None => val.clone(),
-                    };
-                    form_ctx.set_value.read()(&field_name, raw.clone());
-                    // Note: cursor manipulation (set_selection_range) would need web_sys eval
-                    // in Dioxus; for now we just update the value
-                }
-            }),
-            onchange: EventHandler::new({
-                let field_name = fn_clone.clone();
-                move |ev: FormEvent| {
-                    let raw_input = ev.value();
-                    let val = match filter {
-                        Some(f) => f(&raw_input),
-                        None => raw_input,
-                    };
-                    let raw = match parse {
-                        Some(p) => p(&val),
-                        None => val,
-                    };
-                    form_ctx.set_value.read()(&field_name, raw);
-                    form_ctx.touch_field.read()(&field_name);
-                }
-            }),
-            onblur: EventHandler::new({
-                let field_name = fn_clone.clone();
-                move |_: FocusEvent| {
-                    form_ctx.touch_field.read()(&field_name);
-                }
-            }),
-        }
-    }
-}
-
-#[component]
+#[deprecated(note = "use `FloatingLabel`")]
 pub fn FormLabel(
     #[props(default)] class: String,
     #[props(default)] html_for: String,
@@ -614,37 +343,406 @@ pub fn FormLabel(
     #[props(default)] tooltip: Option<Element>,
     children: Element,
 ) -> Element {
-    let field_name = if html_for.is_empty() {
-        try_use_context::<FieldContext>()
-            .map(|ctx| String::from(&*ctx.name))
-            .unwrap_or_default()
-    } else {
-        html_for
-    };
-
-    let placeholder_shown = if textarea {
-        "peer-placeholder-shown:top-[15px] peer-placeholder-shown:translate-y-0 peer-placeholder-shown:scale-100 peer-placeholder-shown:font-normal"
-    } else {
-        "peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:scale-100 peer-placeholder-shown:font-normal"
-    };
-
-    let merged_class = merge(&[
-        "absolute start-3 top-0 z-10 origin-[0] -translate-y-1/2 transform bg-[var(--field-notch-bg)] peer-[:placeholder-shown:not(:focus)]:bg-transparent px-1 text-sm font-medium text-muted-foreground duration-200 scale-75 pointer-events-none",
-        placeholder_shown,
-        "peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:scale-75 peer-focus:font-medium peer-focus:text-primary",
-        "peer-data-[invalid=true]:text-destructive peer-focus:peer-data-[invalid=true]:text-destructive",
-        "group-data-[disabled=true]/field:opacity-50",
-        &class,
-    ]);
-
     rsx! {
-        Label {
-            data_name: "FormLabel".to_string(),
-            class: merged_class,
-            html_for: field_name,
-            {children}
-            if let Some(t) = tooltip {
-                LabelHint { tooltip: t }
+        FloatingLabel { class, html_for, textarea, tooltip, {children} }
+    }
+}
+
+/// Props for [`FormFieldFrame`].
+#[derive(Props, Clone, PartialEq)]
+pub(crate) struct FormFieldFrameProps {
+    /// The bound form field (provides name + label).
+    #[props(into)]
+    pub field: Field,
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+    /// Show the copy-to-clipboard action.
+    #[props(default)]
+    pub copyable: bool,
+    /// Show the clear action.
+    #[props(default)]
+    pub clearable: bool,
+    /// Extra classes merged onto the relative wrapper.
+    #[props(default)]
+    pub class: String,
+    /// Textarea label positioning (peer mechanism only).
+    #[props(default)]
+    pub textarea: bool,
+    /// Signal-driven label float trigger (button-based controls).
+    #[props(default)]
+    pub floated: Option<ReadSignal<bool>>,
+    /// Extra classes for the actions container (e.g. an end offset).
+    #[props(default)]
+    pub actions_class: String,
+    pub children: Element,
+}
+
+/// The shared skeleton of every form-bound field: `FormField` context +
+/// relative wrapper + control (children) + [`FloatingLabel`] + optional
+/// [`FieldActions`] + [`FormError`].
+pub(crate) fn FormFieldFrame(props: FormFieldFrameProps) -> Element {
+    let label = props.field.label;
+    let wrapper_class = merge(&["relative w-full mt-2", &props.class]);
+    rsx! {
+        FormField { field: props.field,
+            div { class: "{wrapper_class}",
+                {props.children}
+                FloatingLabel {
+                    textarea: props.textarea,
+                    floated: props.floated,
+                    tooltip: props.tooltip,
+                    "{label}"
+                }
+                if props.copyable || props.clearable {
+                    FieldActions {
+                        copyable: props.copyable,
+                        clearable: props.clearable,
+                        class: props.actions_class,
+                    }
+                }
+            }
+            FormError {}
+        }
+    }
+}
+
+/// Which typed base a [`BoundInput`] renders.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum TypedKind {
+    /// Raw [`InputBase`] with an explicit HTML type (url, search, hidden, ...).
+    Custom(InputType),
+    Text,
+    Email,
+    Phone,
+    Number,
+    Percentage { min: f64, max: f64 },
+    Password,
+}
+
+/// The single form-context adapter for the whole input family: reads the
+/// field binding and feeds the matching typed base as a controlled input.
+#[component]
+pub(crate) fn BoundInput(
+    kind: TypedKind,
+    #[props(default)] size: FieldSize,
+    #[props(default)] autofocus: bool,
+    /// Reserve end padding for a trailing adornment (actions / reveal button).
+    #[props(default)] reserve_end: bool,
+    #[props(default)] class: String,
+    #[props(default)] unstyled: bool,
+    #[props(default)] placeholder: Option<String>,
+) -> Element {
+    let binding = use_field_binding();
+
+    let input_class = if unstyled {
+        class
+    } else if class.is_empty() {
+        size.form_floating_peer_merge(reserve_end)
+    } else {
+        class
+    };
+
+    let touch = binding.touch;
+    let base = TypedInputBaseProps {
+        value: binding.controlled_value,
+        default_value: String::new(),
+        on_value_change: binding.on_value_change,
+        on_commit: binding.on_commit,
+        on_blur: Callback::new(move |_: FocusEvent| touch.call(())),
+        on_key_down: Callback::default(),
+        disabled: binding.disabled.into(),
+        size,
+        class: input_class,
+        placeholder,
+        id: Some(binding.id.clone()),
+        autofocus,
+        unstyled,
+        aria_invalid: binding.aria_invalid(),
+        aria_describedby: Some(binding.aria_describedby.clone()),
+        attributes: Vec::new(),
+    };
+
+    match kind {
+        TypedKind::Custom(t) => rsx! {
+            InputBase {
+                r#type: t,
+                value: base.value,
+                on_value_change: base.on_value_change,
+                on_commit: base.on_commit,
+                on_blur: base.on_blur,
+                disabled: base.disabled,
+                size: base.size,
+                class: base.class,
+                placeholder: base.placeholder,
+                id: base.id,
+                autofocus: base.autofocus,
+                unstyled: base.unstyled,
+                aria_invalid: base.aria_invalid,
+                aria_describedby: base.aria_describedby,
+            }
+        },
+        TypedKind::Text => rsx! {
+            TextInputBase { ..base }
+        },
+        TypedKind::Email => rsx! {
+            EmailInputBase { ..base }
+        },
+        TypedKind::Phone => rsx! {
+            PhoneInputBase { ..base }
+        },
+        TypedKind::Number => rsx! {
+            NumberInputBase { ..base }
+        },
+        TypedKind::Password => rsx! {
+            PasswordInputBase { ..base }
+        },
+        TypedKind::Percentage { min, max } => {
+            let props = PercentageInputBaseProps {
+                value: base.value,
+                default_value: base.default_value,
+                on_value_change: base.on_value_change,
+                on_commit: base.on_commit,
+                on_blur: base.on_blur,
+                on_key_down: base.on_key_down,
+                disabled: base.disabled,
+                size: base.size,
+                class: base.class,
+                placeholder: base.placeholder,
+                id: base.id,
+                autofocus: base.autofocus,
+                unstyled: base.unstyled,
+                aria_invalid: base.aria_invalid,
+                aria_describedby: base.aria_describedby,
+                min,
+                max,
+                attributes: base.attributes,
+            };
+            rsx! {
+                PercentageInputBase { ..props }
+            }
+        }
+    }
+}
+
+/// Shared props for the typed form-bound inputs ([`TextInput`], [`EmailInput`],
+/// [`PhoneInput`], [`NumberInput`], [`PasswordInput`]).
+#[derive(Props, Clone, PartialEq)]
+pub struct TypedInputProps {
+    /// The bound form field.
+    #[props(into)]
+    pub field: Field,
+    /// Show the copy-to-clipboard action.
+    #[props(default)]
+    pub copyable: bool,
+    /// Show the clear action.
+    #[props(default)]
+    pub clearable: bool,
+    /// Autofocus on mount.
+    #[props(default)]
+    pub autofocus: bool,
+    /// Visual size (shared [`FieldSize`] scale).
+    #[props(default)]
+    pub size: FieldSize,
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+    /// Extra classes merged onto the field wrapper.
+    #[props(default)]
+    pub class: String,
+}
+
+fn typed_form_input(props: TypedInputProps, kind: TypedKind) -> Element {
+    let is_password = matches!(kind, TypedKind::Password);
+    let reserve_end = props.copyable || props.clearable || is_password;
+    // The password reveal button occupies the end slot; shift actions inward.
+    let actions_class = if is_password { "end-9" } else { "" };
+    rsx! {
+        FormFieldFrame {
+            field: props.field,
+            tooltip: props.tooltip,
+            copyable: props.copyable,
+            clearable: props.clearable,
+            class: props.class,
+            actions_class,
+            BoundInput {
+                kind,
+                size: props.size,
+                autofocus: props.autofocus,
+                reserve_end,
+            }
+        }
+    }
+}
+
+/// Form-bound text input.
+pub fn TextInput(props: TypedInputProps) -> Element {
+    typed_form_input(props, TypedKind::Text)
+}
+
+/// Form-bound email input.
+pub fn EmailInput(props: TypedInputProps) -> Element {
+    typed_form_input(props, TypedKind::Email)
+}
+
+/// Form-bound phone input (formatted display, raw digits in the form value).
+pub fn PhoneInput(props: TypedInputProps) -> Element {
+    typed_form_input(props, TypedKind::Phone)
+}
+
+/// Form-bound numeric input (thousands-separated display, raw decimal value).
+pub fn NumberInput(props: TypedInputProps) -> Element {
+    typed_form_input(props, TypedKind::Number)
+}
+
+/// Form-bound password input with reveal toggle.
+pub fn PasswordInput(props: TypedInputProps) -> Element {
+    typed_form_input(props, TypedKind::Password)
+}
+
+/// Props for [`PercentageInput`]: [`TypedInputProps`] plus clamp bounds.
+#[derive(Props, Clone, PartialEq)]
+pub struct PercentageInputProps {
+    /// The bound form field.
+    #[props(into)]
+    pub field: Field,
+    /// Show the copy-to-clipboard action.
+    #[props(default)]
+    pub copyable: bool,
+    /// Show the clear action.
+    #[props(default)]
+    pub clearable: bool,
+    /// Autofocus on mount.
+    #[props(default)]
+    pub autofocus: bool,
+    /// Visual size (shared [`FieldSize`] scale).
+    #[props(default)]
+    pub size: FieldSize,
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+    /// Extra classes merged onto the field wrapper.
+    #[props(default)]
+    pub class: String,
+    /// Lower clamp bound applied on commit.
+    #[props(default = 0.0)]
+    pub min: f64,
+    /// Upper clamp bound applied on commit.
+    #[props(default = 100.0)]
+    pub max: f64,
+}
+
+/// Form-bound percentage input (percent display, clamped into `[min, max]`).
+pub fn PercentageInput(props: PercentageInputProps) -> Element {
+    let PercentageInputProps {
+        field,
+        copyable,
+        clearable,
+        autofocus,
+        size,
+        tooltip,
+        class,
+        min,
+        max,
+    } = props;
+    typed_form_input(
+        TypedInputProps {
+            field,
+            copyable,
+            clearable,
+            autofocus,
+            size,
+            tooltip,
+            class,
+        },
+        TypedKind::Percentage { min, max },
+    )
+}
+
+/// Props for [`Input`], the generic form-bound input with an explicit HTML type.
+#[derive(Props, Clone, PartialEq)]
+pub struct InputProps {
+    /// The bound form field.
+    #[props(into)]
+    pub field: Field,
+    /// HTML input type.
+    pub r#type: InputType,
+    /// Show the copy-to-clipboard action.
+    #[props(default)]
+    pub copyable: bool,
+    /// Show the clear action.
+    #[props(default)]
+    pub clearable: bool,
+    /// Autofocus on mount.
+    #[props(default)]
+    pub autofocus: bool,
+    /// Visual size (shared [`FieldSize`] scale).
+    #[props(default)]
+    pub size: FieldSize,
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+    /// Extra classes merged onto the field wrapper.
+    #[props(default)]
+    pub class: String,
+}
+
+/// Generic form-bound input for HTML types without a dedicated wrapper
+/// (url, search, hidden, ...). Prefer the typed wrappers where one exists.
+pub fn Input(props: InputProps) -> Element {
+    let InputProps {
+        field,
+        r#type,
+        copyable,
+        clearable,
+        autofocus,
+        size,
+        tooltip,
+        class,
+    } = props;
+    typed_form_input(
+        TypedInputProps {
+            field,
+            copyable,
+            clearable,
+            autofocus,
+            size,
+            tooltip,
+            class,
+        },
+        TypedKind::Custom(r#type),
+    )
+}
+
+/// Props for [`BareTextInput`].
+#[derive(Props, Clone, PartialEq)]
+pub struct BareTextInputProps {
+    /// The bound form field.
+    #[props(into)]
+    pub field: Field,
+    /// Full class list for the chromeless control.
+    #[props(default)]
+    pub class: String,
+    /// Placeholder text.
+    #[props(default)]
+    pub placeholder: String,
+    /// Autofocus on mount.
+    #[props(default)]
+    pub autofocus: bool,
+}
+
+/// Chromeless text field — no floating label, no border/background of its own.
+/// The caller styles it via `class` (the control renders `unstyled`), so it can
+/// sit inside a custom surface (an editable card cell, an inline row).
+pub fn BareTextInput(props: BareTextInputProps) -> Element {
+    rsx! {
+        FormField { field: props.field,
+            BoundInput {
+                kind: TypedKind::Text,
+                class: props.class,
+                unstyled: true,
+                placeholder: props.placeholder,
+                autofocus: props.autofocus,
             }
         }
     }

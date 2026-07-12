@@ -6,6 +6,9 @@ use serde_json::json;
 use validator::{Validate, ValidationError, ValidationErrors};
 
 use super::*;
+// The `FormFields` derive emits `components::` paths (the consuming app's crate
+// alias for this library); alias ourselves so the derive resolves in-crate.
+use crate as components;
 use crate::FormFields;
 use crate::field_name::FieldType;
 

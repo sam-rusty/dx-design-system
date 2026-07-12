@@ -551,6 +551,9 @@ mod tests {
     use validator::Validate;
 
     use super::*;
+    // The `FormFields` derive emits `components::` paths (the consuming app's
+    // crate alias for this library); alias ourselves so the derive resolves.
+    use crate as components;
     use crate::{FormFields, FormOptions};
 
     #[derive(Clone, Default, Serialize, Deserialize, Validate, FormFields)]

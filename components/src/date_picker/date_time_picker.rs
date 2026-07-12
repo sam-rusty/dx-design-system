@@ -78,6 +78,7 @@ pub fn DateTimePickerBase(
 
     let mut input_mode = use_signal(|| false);
     let mut input_value = use_signal(String::new);
+    let input_value_read: ReadSignal<Option<String>> = use_memo(move || Some(input_value())).into();
     let mut step = use_signal(|| PickerStep::Date);
 
     let current_value: ReadSignal<String> =
@@ -212,7 +213,8 @@ pub fn DateTimePickerBase(
                                             label { class: "block text-xs font-medium text-muted-foreground mb-2", "Date & time" }
                                             InputBase {
                                                 placeholder: "YYYY-MM-DD HH:MM:SS".to_string(),
-                                                value: input_value,
+                                                value: input_value_read,
+                                                on_value_change: move |v: String| input_value.set(v),
                                             }
                                         }
                                     }

@@ -3,7 +3,7 @@ use ds_macros::on_web;
 use ds_utils::format::merge;
 
 use crate::field_name::Field;
-use crate::form::{FieldContext, FormContext, FormError, FormField, FormLabel};
+use crate::form::{FieldContext, FloatingLabel, FormContext, FormError, FormField};
 
 on_web! {
     mod js {
@@ -242,7 +242,7 @@ pub fn TextArea(
                     maxlength: maxlength,
                     resize: resize,
                 }
-                FormLabel { textarea: true, tooltip, "{label}" }
+                FloatingLabel { textarea: true, tooltip, "{label}" }
             }
             FormError {}
         }

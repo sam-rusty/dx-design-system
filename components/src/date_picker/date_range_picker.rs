@@ -39,6 +39,8 @@ pub fn DateRangePickerBase(
     let mut active_tab = use_signal(|| RangeTab::Start);
     let mut input_start = use_signal(String::new);
     let mut input_end = use_signal(String::new);
+    let input_start_read: ReadSignal<Option<String>> = use_memo(move || Some(input_start())).into();
+    let input_end_read: ReadSignal<Option<String>> = use_memo(move || Some(input_end())).into();
 
     let current_value: ReadSignal<String> =
         value.unwrap_or_else(|| ReadSignal::from(use_signal(String::new)));
@@ -192,14 +194,16 @@ pub fn DateRangePickerBase(
                                     label { class: "block text-xs font-medium text-muted-foreground mb-2", "Start date" }
                                     InputBase {
                                         placeholder: "YYYY-MM-DD".to_string(),
-                                        value: input_start,
+                                        value: input_start_read,
+                                        on_value_change: move |v: String| input_start.set(v),
                                     }
                                 }
                                 div {
                                     label { class: "block text-xs font-medium text-muted-foreground mb-2", "End date" }
                                     InputBase {
                                         placeholder: "YYYY-MM-DD".to_string(),
-                                        value: input_end,
+                                        value: input_end_read,
+                                        on_value_change: move |v: String| input_end.set(v),
                                     }
                                 }
                             }

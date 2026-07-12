@@ -7,7 +7,7 @@ on_web! {
 }
 
 use crate::field_name::Field;
-use crate::form::{FieldContext, FormContext, FormError, FormField, FormLabel};
+use crate::form::{FieldContext, FloatingLabel, FormContext, FormError, FormField};
 #[cfg(feature = "web")]
 use crate::icon::{Icon, IconName};
 #[cfg(feature = "web")]
@@ -235,6 +235,8 @@ pub fn RichTextEditorBase(
             use_signal(move || value.map(|s| s.peek().clone()).unwrap_or_default());
         let mut link_open = use_signal(|| false);
         let mut link_url = use_signal(String::new);
+        let link_url_value: ReadSignal<Option<String>> =
+            use_memo(move || Some(link_url())).into();
         let mut color_open = use_signal(|| false);
         let mut font_size_open = use_signal(|| false);
 
@@ -467,9 +469,10 @@ pub fn RichTextEditorBase(
                             div { class: "flex flex-col gap-2 w-56",
                                 InputBase {
                                     r#type: InputType::Url,
-                                    size: crate::input::InputSize::Sm,
+                                    size: crate::input::FieldSize::Sm,
                                     placeholder: "https://example.com",
-                                    value: Some(link_url),
+                                    value: link_url_value,
+                                    on_value_change: move |v: String| link_url.set(v),
                                 }
                                 div { class: "flex justify-end gap-1.5",
                                     button {
@@ -668,7 +671,7 @@ pub fn RichTextEditor(
                     show_align: show_align,
                     show_link: show_link,
                 }
-                FormLabel { textarea: true, "{label}" }
+                FloatingLabel { textarea: true, "{label}" }
             }
             FormError {}
         }

@@ -34,17 +34,44 @@ pub fn derive_form_fields(input: TokenStream) -> TokenStream {
         let label = find_field_label(f).unwrap_or_else(|| snake_to_title(&field_name.to_string()));
         let field_ty = &f.ty;
 
-        if let Some(inner_ty) = vec_inner_type(field_ty).or_else(|| option_vec_inner_type(field_ty)) {
+        if let Some(inner_ty) = vec_inner_type(field_ty) {
             let required = !is_option_type(field_ty);
             quote! {
                 #[allow(non_upper_case_globals)]
-                pub const #field_name: components::FieldArray<Self, #inner_ty> = components::FieldArray::new(#field_str, #label, #required, <#inner_ty as components::FormSchema>::FIELD_TYPE);
+                pub const #field_name: components::FieldArray<Self, #inner_ty> = components::FieldArray::new(
+                    #field_str,
+                    #label,
+                    #required,
+                    <#inner_ty as components::FormSchema>::FIELD_TYPE,
+                    |t: &Self| Some(&t.#field_name),
+                    |t: &mut Self| &mut t.#field_name,
+                );
+            }
+        } else if let Some(inner_ty) = option_vec_inner_type(field_ty) {
+            let required = !is_option_type(field_ty);
+            quote! {
+                #[allow(non_upper_case_globals)]
+                pub const #field_name: components::FieldArray<Self, #inner_ty> = components::FieldArray::new(
+                    #field_str,
+                    #label,
+                    #required,
+                    <#inner_ty as components::FormSchema>::FIELD_TYPE,
+                    |t: &Self| t.#field_name.as_ref(),
+                    |t: &mut Self| t.#field_name.get_or_insert_with(Vec::new),
+                );
             }
         } else {
             let required = !is_option_type(field_ty);
             quote! {
                 #[allow(non_upper_case_globals)]
-                pub const #field_name: components::FieldName<Self, #field_ty> = components::FieldName::new(#field_str, #label, #required, <#field_ty as components::FormSchema>::FIELD_TYPE);
+                pub const #field_name: components::FieldName<Self, #field_ty> = components::FieldName::new(
+                    #field_str,
+                    #label,
+                    #required,
+                    <#field_ty as components::FormSchema>::FIELD_TYPE,
+                    |t: &Self| &t.#field_name,
+                    |t: &mut Self| &mut t.#field_name,
+                );
             }
         }
     });

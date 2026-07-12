@@ -159,7 +159,7 @@ pub fn Form(
 }
 
 #[component]
-fn FormFieldWrapper(
+pub(crate) fn FormFieldWrapper(
     #[props(default)] class: String,
     #[props(default)] data_name: Option<String>,
     #[props(default)] data_invalid: Option<String>,

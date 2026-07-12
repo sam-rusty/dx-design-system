@@ -110,6 +110,9 @@ pub use form::{
     BareTextInput, Form, FormData, FormProvider, FormSubmit, NumberInput, PasswordInput, TextInput,
     use_form,
 };
+// Root exports for the typed form store; the derive macros reference these
+// paths (`components::FormValue`).
+pub use form::typed::{FormValue, ParseError};
 pub use hooks::{use_escape_listener, use_outside_dismiss};
 pub use icon::{Icon, IconName};
 pub use icon_bubble::{IconBubble, IconBubbleColor, IconBubbleSize};

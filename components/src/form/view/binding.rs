@@ -41,6 +41,14 @@ impl FieldBinding {
 }
 
 pub(crate) fn use_field_binding() -> FieldBinding {
+    // Typed form store: `typed::FormField` provides a `Signal<BoundField>` in
+    // context; adapt it to the same string-shaped binding. The branch is
+    // stable for a control instance's lifetime (it mounts under one form
+    // flavor), so hook order is consistent.
+    if let Some(bound) = try_use_context::<Signal<crate::form::typed::BoundField>>() {
+        return use_typed_field_binding(bound);
+    }
+
     let field_ctx = use_context::<FieldContext>();
     let form_ctx = use_context::<FormContext>();
     let name = field_ctx.name.clone();
@@ -80,6 +88,40 @@ pub(crate) fn use_field_binding() -> FieldBinding {
         let name = name.clone();
         move |_: ()| form_ctx.touch_field.read()(&name)
     });
+
+    FieldBinding {
+        id: String::from(&*name),
+        aria_describedby: format!("{}-error", name),
+        name,
+        value,
+        controlled_value,
+        invalid,
+        disabled,
+        on_value_change,
+        on_commit,
+        touch,
+    }
+}
+
+/// Adapts a typed-form [`crate::form::typed::BoundField`] (provided as a
+/// signal so row re-keys propagate) to the string-shaped [`FieldBinding`]
+/// every control consumes.
+fn use_typed_field_binding(bound: Signal<crate::form::typed::BoundField>) -> FieldBinding {
+    let form_ctx = try_use_context::<crate::form::typed::view::FormContext>();
+    let name: Arc<str> = Arc::from(bound.peek().path());
+
+    let value = use_memo(move || bound.read().display());
+    let invalid = use_memo(move || bound.read().invalid());
+    let disabled = use_memo(move || {
+        form_ctx
+            .and_then(|ctx| ctx.disabled.map(|d| d()))
+            .unwrap_or(false)
+    });
+    let controlled_value: ReadSignal<Option<String>> = use_memo(move || Some(value())).into();
+
+    let on_value_change = use_callback(move |v: String| bound.peek().set_text(&v));
+    let on_commit = use_callback(move |v: String| bound.peek().commit_text(&v));
+    let touch = use_callback(move |_: ()| bound.peek().touch());
 
     FieldBinding {
         id: String::from(&*name),

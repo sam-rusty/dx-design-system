@@ -45,6 +45,42 @@ pub fn derive_form_options(input: TokenStream) -> TokenStream {
         .map(|(v, _)| v.clone())
         .unwrap_or_default();
 
+    // FormValue (typed form store) is only expressible when every variant is
+    // a unit variant — data variants have no string form.
+    let all_unit = variants.iter().all(|v| v.fields.is_empty());
+    let form_value_impl = if all_unit {
+        let to_arms = variants.iter().map(|v| {
+            let ident = &v.ident;
+            let value = find_serde_rename(&v.attrs)
+                .unwrap_or_else(|| apply_rename_all(&ident.to_string(), rename_all.as_deref()));
+            quote! { Self::#ident => #value.to_string() }
+        });
+        let from_arms = variants.iter().map(|v| {
+            let ident = &v.ident;
+            let value = find_serde_rename(&v.attrs)
+                .unwrap_or_else(|| apply_rename_all(&ident.to_string(), rename_all.as_deref()));
+            quote! { #value => Ok(Self::#ident) }
+        });
+        quote! {
+            impl components::FormValue for #name {
+                fn to_input(&self) -> String {
+                    match self {
+                        #(#to_arms),*
+                    }
+                }
+
+                fn from_input(input: &str) -> Result<Self, components::ParseError> {
+                    match input {
+                        #(#from_arms,)*
+                        _ => Err(components::ParseError::new("Invalid option")),
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let expanded = quote! {
         impl #name {
             pub const OPTIONS: &[(&str, &str)] = &[#(#entries),*];
@@ -57,6 +93,8 @@ pub fn derive_form_options(input: TokenStream) -> TokenStream {
                 components::serde_json::Value::String(#first_value.to_string())
             }
         }
+
+        #form_value_impl
     };
 
     TokenStream::from(expanded)

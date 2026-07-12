@@ -157,7 +157,7 @@ pub fn Checkbox(props: CheckboxProps) -> Element {
 }
 
 #[component]
-fn CheckboxRow(
+pub(crate) fn CheckboxRow(
     label: String,
     #[props(default)] class: String,
     #[props(default)] tooltip: Option<Element>,

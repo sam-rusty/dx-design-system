@@ -170,6 +170,10 @@ pub struct FieldName<T, F> {
     pub label: &'static str,
     pub required: bool,
     pub field_type: FieldType,
+    /// Direct read access into the owning struct (typed form store).
+    pub get: fn(&T) -> &F,
+    /// Direct write access into the owning struct (typed form store).
+    pub get_mut: fn(&mut T) -> &mut F,
     _phantom: PhantomData<(T, F)>,
 }
 
@@ -179,12 +183,16 @@ impl<T, F> FieldName<T, F> {
         label: &'static str,
         required: bool,
         field_type: FieldType,
+        get: fn(&T) -> &F,
+        get_mut: fn(&mut T) -> &mut F,
     ) -> Self {
         Self {
             name,
             label,
             required,
             field_type,
+            get,
+            get_mut,
             _phantom: PhantomData,
         }
     }
@@ -268,6 +276,12 @@ pub struct FieldArray<T, F> {
     pub label: &'static str,
     pub required: bool,
     pub element_field_type: FieldType,
+    /// Direct read access to the backing `Vec` (`None` when the field is an
+    /// unset `Option<Vec<_>>`).
+    pub get: fn(&T) -> Option<&Vec<F>>,
+    /// Direct write access to the backing `Vec` (materializes an unset
+    /// `Option<Vec<_>>` as an empty `Vec`).
+    pub get_mut: fn(&mut T) -> &mut Vec<F>,
     _phantom: PhantomData<(T, F)>,
 }
 
@@ -277,12 +291,16 @@ impl<T, F> FieldArray<T, F> {
         label: &'static str,
         required: bool,
         element_field_type: FieldType,
+        get: fn(&T) -> Option<&Vec<F>>,
+        get_mut: fn(&mut T) -> &mut Vec<F>,
     ) -> Self {
         Self {
             name,
             label,
             required,
             element_field_type,
+            get,
+            get_mut,
             _phantom: PhantomData,
         }
     }

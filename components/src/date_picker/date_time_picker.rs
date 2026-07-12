@@ -376,17 +376,14 @@ pub struct DateTimePickerProps {
     pub tooltip: Option<Element>,
 }
 
-/// Form-bound date-time picker with floating label and inline error.
+/// Form-bound date-time picker with stacked label and inline error.
 pub fn DateTimePicker(props: DateTimePickerProps) -> Element {
-    // Owned here (not inside the control) so the frame's floating label can
-    // float while the picker is open.
     let open = use_signal(|| false);
     rsx! {
         FormFieldFrame {
             field: props.field,
             tooltip: props.tooltip,
             class: props.class,
-            floated: ReadSignal::from(open),
             DateTimePickerControl {
                 min: props.min,
                 max: props.max,

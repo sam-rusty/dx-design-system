@@ -19,16 +19,14 @@ use crate::separator::Separator;
 use crate::stepper::{auto_register_field, unregister_auto_field};
 use crate::tooltip::Tooltip;
 
-/// Help icon that reveals `tooltip` content on hover/focus, rendered inline after
-/// a field label. `pointer-events-auto` re-enables interaction on floating labels
-/// (which are `pointer-events-none`); `peer-placeholder-shown:pointer-events-none`
-/// keeps it inert while the field is empty and the label sits over the input.
+/// Help icon that reveals `tooltip` content on hover/focus, rendered inline
+/// after a field label.
 #[component]
 pub(crate) fn LabelHint(tooltip: Element) -> Element {
     rsx! {
         Tooltip {
             title: tooltip,
-            class: "pointer-events-auto peer-placeholder-shown:pointer-events-none align-middle",
+            class: "align-middle",
             Icon {
                 name: IconName::CircleHelp,
                 class: "size-3.5 text-muted-foreground hover:text-foreground",
@@ -168,7 +166,7 @@ fn FormFieldWrapper(
     children: Element,
 ) -> Element {
     let merged = merge(&[
-        "group/field flex flex-col gap-1 w-full data-[invalid=true]:text-destructive",
+        "group/field flex flex-col gap-2 w-full data-[invalid=true]:text-destructive",
         &class,
     ]);
     rsx! {
@@ -208,35 +206,26 @@ pub fn FormField(field: Field, children: Element) -> Element {
     }
 }
 
-/// Props for [`FloatingLabel`].
+/// Props for [`FieldLabel`].
 #[derive(Props, Clone, PartialEq)]
-pub struct FloatingLabelProps {
+pub struct FieldLabelProps {
     /// Extra classes merged into the label style.
     #[props(default)]
     pub class: String,
     /// Explicit label target; defaults to the surrounding field's name.
     #[props(default)]
     pub html_for: String,
-    /// Textarea positioning (top-anchored resting state) for the peer mechanism.
-    #[props(default)]
-    pub textarea: bool,
-    /// Float trigger for button-based controls (open state). `None` uses the
-    /// CSS `peer` mechanism (real inputs); `Some` floats when the field has a
-    /// value or the signal reads true.
-    #[props(default)]
-    pub floated: Option<ReadSignal<bool>>,
     /// Help tooltip rendered inline after the label text.
     #[props(default)]
     pub tooltip: Option<Element>,
     pub children: Element,
 }
 
-/// The one floating label for the form family. Two mechanisms, one home for
-/// the typography/positioning tokens: CSS `peer` for real inputs, signal-driven
-/// for button-based controls (Select, date pickers).
-pub fn FloatingLabel(props: FloatingLabelProps) -> Element {
+/// The one field label for the form family: a static label stacked above the
+/// control. Dims when the form is disabled; the error state is carried by the
+/// control border + `FormError`, not the label color.
+pub fn FieldLabel(props: FieldLabelProps) -> Element {
     let field_ctx = try_use_context::<FieldContext>();
-    let form_ctx = try_use_context::<FormContext>();
 
     let field_name = if props.html_for.is_empty() {
         field_ctx
@@ -247,104 +236,21 @@ pub fn FloatingLabel(props: FloatingLabelProps) -> Element {
         props.html_for.clone()
     };
 
-    let name_arc: Option<Arc<str>> = field_ctx.map(|ctx| ctx.name.clone());
-    let has_value = {
-        let name = name_arc.clone();
-        use_memo(move || match (&name, &form_ctx) {
-            (Some(n), Some(fc)) => fc
-                .values_signal
-                .with(|v| v.get(&**n).is_some_and(|s| !s.is_empty())),
-            _ => false,
-        })
-    };
-    let invalid = {
-        let name = name_arc.clone();
-        use_memo(move || match (&name, &form_ctx) {
-            (Some(n), Some(fc)) => {
-                fc.touched_signal.with(|t| t.contains(&**n))
-                    && fc
-                        .errors_signal
-                        .with(|e| e.get(&**n).is_some_and(|err| err.is_some()))
-            }
-            _ => false,
-        })
-    };
+    let merged_class = merge(&[
+        "text-muted-foreground group-data-[disabled=true]/field:opacity-50",
+        &props.class,
+    ]);
 
-    match props.floated {
-        // Signal-driven: float when the field has a value or the control is open.
-        Some(open) => {
-            let is_floated = has_value() || open();
-            let base = "absolute start-3 z-10 pointer-events-none bg-[var(--field-notch-bg)] \
-                 px-1 text-muted-foreground transition-all duration-200 origin-[0] \
-                 inline-flex items-center gap-1.5";
-            let state = if is_floated {
-                "top-0 -translate-y-1/2 scale-75 text-sm font-medium"
-            } else {
-                "top-1/2 -translate-y-1/2 scale-100 text-sm font-normal"
-            };
-            let accent = if invalid() {
-                "text-destructive"
-            } else if open() {
-                "text-primary"
-            } else {
-                ""
-            };
-            let label_class = merge(&[base, state, accent, &props.class]);
-            rsx! {
-                label {
-                    "data-name": "FloatingLabel",
-                    class: "{label_class}",
-                    r#for: "{field_name}",
-                    {props.children}
-                    if let Some(t) = props.tooltip {
-                        LabelHint { tooltip: t }
-                    }
-                }
-            }
-        }
-        // CSS peer: the input's placeholder/focus state drives the float.
-        None => {
-            let placeholder_shown = if props.textarea {
-                "peer-placeholder-shown:top-[15px] peer-placeholder-shown:translate-y-0 peer-placeholder-shown:scale-100 peer-placeholder-shown:font-normal"
-            } else {
-                "peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:scale-100 peer-placeholder-shown:font-normal"
-            };
-
-            let merged_class = merge(&[
-                "absolute start-3 top-0 z-10 origin-[0] -translate-y-1/2 transform bg-[var(--field-notch-bg)] peer-[:placeholder-shown:not(:focus)]:bg-transparent px-1 text-sm font-medium text-muted-foreground duration-200 scale-75 pointer-events-none",
-                placeholder_shown,
-                "peer-focus:top-0 peer-focus:-translate-y-1/2 peer-focus:scale-75 peer-focus:font-medium peer-focus:text-primary",
-                "peer-data-[invalid=true]:text-destructive peer-focus:peer-data-[invalid=true]:text-destructive",
-                "group-data-[disabled=true]/field:opacity-50",
-                &props.class,
-            ]);
-
-            rsx! {
-                Label {
-                    data_name: "FloatingLabel".to_string(),
-                    class: merged_class,
-                    html_for: field_name,
-                    {props.children}
-                    if let Some(t) = props.tooltip {
-                        LabelHint { tooltip: t }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-#[deprecated(note = "use `FloatingLabel`")]
-pub fn FormLabel(
-    #[props(default)] class: String,
-    #[props(default)] html_for: String,
-    #[props(default)] textarea: bool,
-    #[props(default)] tooltip: Option<Element>,
-    children: Element,
-) -> Element {
     rsx! {
-        FloatingLabel { class, html_for, textarea, tooltip, {children} }
+        Label {
+            data_name: "FieldLabel".to_string(),
+            class: merged_class,
+            html_for: field_name,
+            {props.children}
+            if let Some(t) = props.tooltip {
+                LabelHint { tooltip: t }
+            }
+        }
     }
 }
 
@@ -366,12 +272,6 @@ pub(crate) struct FormFieldFrameProps {
     /// Extra classes merged onto the relative wrapper.
     #[props(default)]
     pub class: String,
-    /// Textarea label positioning (peer mechanism only).
-    #[props(default)]
-    pub textarea: bool,
-    /// Signal-driven label float trigger (button-based controls).
-    #[props(default)]
-    pub floated: Option<ReadSignal<bool>>,
     /// Extra classes for the actions container (e.g. an end offset).
     #[props(default)]
     pub actions_class: String,
@@ -379,21 +279,16 @@ pub(crate) struct FormFieldFrameProps {
 }
 
 /// The shared skeleton of every form-bound field: `FormField` context +
-/// relative wrapper + control (children) + [`FloatingLabel`] + optional
+/// stacked [`FieldLabel`] + relative wrapper + control (children) + optional
 /// [`FieldActions`] + [`FormError`].
 pub(crate) fn FormFieldFrame(props: FormFieldFrameProps) -> Element {
     let label = props.field.label;
-    let wrapper_class = merge(&["relative w-full mt-2", &props.class]);
+    let wrapper_class = merge(&["relative w-full", &props.class]);
     rsx! {
         FormField { field: props.field,
+            FieldLabel { tooltip: props.tooltip, "{label}" }
             div { class: "{wrapper_class}",
                 {props.children}
-                FloatingLabel {
-                    textarea: props.textarea,
-                    floated: props.floated,
-                    tooltip: props.tooltip,
-                    "{label}"
-                }
                 if props.copyable || props.clearable {
                     FieldActions {
                         copyable: props.copyable,
@@ -439,12 +334,14 @@ pub(crate) fn BoundInput(
 ) -> Element {
     let binding = use_field_binding();
 
-    let input_class = if unstyled {
+    // Always a complete class list (the caller's own, or the form control
+    // style), so the control renders `unstyled` and the standalone base is
+    // never merged underneath (its conflicting border/focus classes would
+    // fight the form styling).
+    let input_class = if unstyled || !class.is_empty() {
         class
-    } else if class.is_empty() {
-        size.form_floating_peer_merge(reserve_end)
     } else {
-        class
+        size.form_control_merge(reserve_end)
     };
 
     let touch = binding.touch;
@@ -461,7 +358,8 @@ pub(crate) fn BoundInput(
         placeholder,
         id: Some(binding.id.clone()),
         autofocus,
-        unstyled,
+        // `input_class` is always complete — never merge the standalone base.
+        unstyled: true,
         aria_invalid: binding.aria_invalid(),
         aria_describedby: Some(binding.aria_describedby.clone()),
         attributes: Vec::new(),
@@ -735,7 +633,7 @@ pub struct BareTextInputProps {
     pub autofocus: bool,
 }
 
-/// Chromeless text field — no floating label, no border/background of its own.
+/// Chromeless text field — no label, no border/background of its own.
 /// The caller styles it via `class` (the control renders `unstyled`), so it can
 /// sit inside a custom surface (an editable card cell, an inline row).
 pub fn BareTextInput(props: BareTextInputProps) -> Element {

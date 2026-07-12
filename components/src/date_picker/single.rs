@@ -30,7 +30,7 @@ pub fn DatePickerBase(
     /// Latest selectable date.
     #[props(default)]
     max: Option<Signal<WireDate>>,
-    /// Shared open state (owned by a form wrapper for its floating label).
+    /// Shared open state (lets a wrapper observe/control the popover).
     #[props(default)]
     is_open: Option<Signal<bool>>,
 ) -> Element {
@@ -182,17 +182,14 @@ pub struct DatePickerProps {
     pub tooltip: Option<Element>,
 }
 
-/// Form-bound date picker with floating label and inline error.
+/// Form-bound date picker with stacked label and inline error.
 pub fn DatePicker(props: DatePickerProps) -> Element {
-    // Owned here (not inside the control) so the frame's floating label can
-    // float while the picker is open.
     let open = use_signal(|| false);
     rsx! {
         FormFieldFrame {
             field: props.field,
             tooltip: props.tooltip,
             class: props.class,
-            floated: ReadSignal::from(open),
             DatePickerControl {
                 min: props.min,
                 max: props.max,

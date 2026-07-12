@@ -861,7 +861,6 @@ pub(crate) fn SelectControl(
     #[props(default)] limit: usize,
     #[props(default)] dynamic: bool,
     #[props(default)] size: FieldSize,
-    /// Shared open state so the frame's floating label can track it.
     open: Signal<bool>,
     #[props(default)] aria_label: Option<String>,
     #[props(default)] children: Option<Element>,
@@ -936,11 +935,9 @@ pub struct SelectProps {
     pub children: Option<Element>,
 }
 
-/// Form-bound select with floating label and inline error.
+/// Form-bound select with stacked label and inline error.
 pub fn Select(props: SelectProps) -> Element {
     let field_label = props.field.label;
-    // Owned here (not inside the control) so the frame's floating label can
-    // float while the dropdown is open.
     let open = use_signal(|| false);
     rsx! {
         FormFieldFrame {
@@ -949,7 +946,6 @@ pub fn Select(props: SelectProps) -> Element {
             copyable: props.copyable,
             clearable: props.clearable,
             class: props.class,
-            floated: ReadSignal::from(open),
             actions_class: "end-9",
             SelectControl {
                 searchable: props.searchable,

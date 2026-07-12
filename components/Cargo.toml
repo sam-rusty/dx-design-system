@@ -19,3 +19,6 @@ ds-utils = { workspace = true }
 
 [features]
 web = ["dioxus/web", "ds-utils/web", "dep:js-sys", "dep:wasm-bindgen"]
+
+[dev-dependencies]
+dioxus-ssr = { git = "https://github.com/DioxusLabs/dioxus", rev = "e1c63426fd39018223480ee354ae3e8485ab8e2a" }

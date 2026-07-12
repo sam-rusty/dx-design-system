@@ -71,7 +71,7 @@ const TEXTAREA_BASE: &str = "peer flex w-full min-h-[80px] min-w-0 rounded-lg bo
 const TEXTAREA_FORM_BASE: &str = "peer block w-full min-h-[80px] appearance-none rounded-lg border \
      border-input bg-transparent text-foreground transition-colors \
      focus-visible:border-primary focus-visible:outline-none focus-visible:ring-1 \
-     focus-visible:ring-primary data-[invalid=true]:border-destructive";
+     focus-visible:ring-primary aria-invalid:border-destructive aria-invalid:ring-destructive/20";
 
 /// Padding + text classes for each [`FieldSize`] on a textarea.
 fn size_classes(size: FieldSize) -> &'static str {
@@ -116,7 +116,7 @@ pub struct TextAreaBaseProps {
     /// Extra classes merged into the base style; the full class list when `unstyled`.
     #[props(default)]
     pub class: String,
-    /// Placeholder text (defaults to the floating-label space hack).
+    /// Placeholder text.
     #[props(default)]
     pub placeholder: Option<String>,
     /// DOM id. Form bindings set this to the field name so labels target it.
@@ -158,7 +158,7 @@ pub fn TextAreaBase(props: TextAreaBaseProps) -> Element {
         props.on_value_change,
     );
 
-    let actual_placeholder = props.placeholder.clone().unwrap_or_else(|| " ".to_string());
+    let actual_placeholder = props.placeholder.clone().unwrap_or_default();
     let on_commit = props.on_commit;
     let on_blur = props.on_blur;
     let on_key_down = props.on_key_down;
@@ -257,14 +257,13 @@ pub struct TextAreaProps {
     pub class: String,
 }
 
-/// Form-bound textarea with floating label and inline error.
+/// Form-bound textarea with stacked label and inline error.
 pub fn TextArea(props: TextAreaProps) -> Element {
     rsx! {
         FormFieldFrame {
             field: props.field,
             tooltip: props.tooltip,
             class: props.class,
-            textarea: true,
             TextAreaControl {
                 autofocus: props.autofocus,
                 rows: props.rows,

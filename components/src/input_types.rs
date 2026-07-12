@@ -47,7 +47,7 @@ pub struct TypedInputBaseProps {
     /// Extra classes merged into the base style; the full class list when `unstyled`.
     #[props(default)]
     pub class: String,
-    /// Placeholder text (defaults to the floating-label space hack).
+    /// Placeholder text.
     #[props(default)]
     pub placeholder: Option<String>,
     /// DOM id. Form bindings set this to the field name so labels target it.
@@ -237,7 +237,7 @@ pub struct PercentageInputBaseProps {
     /// Extra classes merged into the base style; the full class list when `unstyled`.
     #[props(default)]
     pub class: String,
-    /// Placeholder text (defaults to the floating-label space hack).
+    /// Placeholder text.
     #[props(default)]
     pub placeholder: Option<String>,
     /// DOM id. Form bindings set this to the field name so labels target it.
@@ -318,8 +318,8 @@ pub fn PercentageInputBase(props: PercentageInputBaseProps) -> Element {
 }
 
 /// Password input with a reveal toggle rendered through the trailing slot.
-/// The trailing button is absolutely positioned — form wrappers provide the
-/// `relative` container; standalone callers must supply their own.
+/// [`InputBase`] wraps the input + trailing in its own `relative` box, so this
+/// positions correctly standalone or inside a form frame.
 pub fn PasswordInputBase(props: TypedInputBaseProps) -> Element {
     let mut revealed = use_signal(|| false);
     let behavior = TypedBehavior::plain(if revealed() {

@@ -297,17 +297,14 @@ pub struct DateRangePickerProps {
     pub tooltip: Option<Element>,
 }
 
-/// Form-bound date-range picker with floating label and inline error.
+/// Form-bound date-range picker with stacked label and inline error.
 pub fn DateRangePicker(props: DateRangePickerProps) -> Element {
-    // Owned here (not inside the control) so the frame's floating label can
-    // float while the picker is open.
     let open = use_signal(|| false);
     rsx! {
         FormFieldFrame {
             field: props.field,
             tooltip: props.tooltip,
             class: props.class,
-            floated: ReadSignal::from(open),
             DateRangePickerControl {
                 min: props.min,
                 max: props.max,

@@ -22,10 +22,6 @@
     --field-bg-focus: transparent;
     --field-border-color: var(--input);
     --field-border-width: 1px;
-    /* Floating-label knockout: the label's own background where it crosses the
-       field border. Match the surface the field sits on (card by default;
-       apps whose fields sit on the body override to --background). */
-    --field-notch-bg: var(--card);
 
     /* Glass toolkit tokens referenced by Card's glass variants and the pill
        field. Neutral fallbacks; an app with a real glass palette overrides the

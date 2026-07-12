@@ -39,12 +39,14 @@ const STANDALONE_BASE: &str = "peer flex w-full min-w-0 rounded-[var(--field-rad
      disabled:bg-muted/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 \
      focus:aria-invalid:border-destructive focus:aria-invalid:ring-1 read-only:bg-muted/50";
 
+/// Form-bound control inside a `FormFieldFrame` (stacked label above, so the
+/// control owns its full border/focus/invalid styling).
 const FORM_BASE: &str = "peer block w-full appearance-none rounded-[var(--field-radius)] \
      border-[length:var(--field-border-width)] border-[color:var(--field-border-color)] \
      bg-[var(--field-bg)] text-foreground transition-colors \
      focus-visible:bg-[var(--field-bg-focus)] focus-visible:border-primary \
      focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary \
-     data-[invalid=true]:border-destructive";
+     aria-invalid:border-destructive aria-invalid:ring-destructive/20";
 
 /// Per-size Tailwind tokens. Every field is a literal so the Tailwind scanner still sees each class.
 struct SizeTokens {
@@ -106,9 +108,9 @@ impl FieldSize {
         ])
     }
 
-    /// Floating-label form input control (`peer block`).
+    /// Form-bound input control (`peer block`).
     /// `trailing` reserves end padding for an overlaid trailing adornment.
-    pub fn form_floating_peer_merge(self, trailing: bool) -> String {
+    pub fn form_control_merge(self, trailing: bool) -> String {
         let t = self.tokens();
         let padding = if trailing { t.pr } else { t.px };
         merge(&[FORM_BASE, t.height, t.py, t.text, padding])
@@ -166,8 +168,7 @@ pub struct InputBaseProps {
     /// Extra classes merged into the base style; the full class list when `unstyled`.
     #[props(default)]
     pub class: String,
-    /// Placeholder text. Defaults to a single space so the floating-label
-    /// `placeholder-shown` mechanism keeps working.
+    /// Placeholder text.
     #[props(default)]
     pub placeholder: Option<String>,
     /// DOM id. Form bindings set this to the field name so labels target it.
@@ -189,9 +190,9 @@ pub struct InputBaseProps {
     #[props(default)]
     pub aria_describedby: Option<String>,
     /// Trailing adornment (reveal / copy / clear buttons). Rendered absolutely
-    /// positioned after the input and reserves end padding — the nearest
-    /// `relative` ancestor is the positioning context (form wrappers provide
-    /// one; standalone callers must supply their own).
+    /// positioned after the input and reserves end padding; when present the
+    /// input + adornment are wrapped in a `relative` box that anchors it, so no
+    /// `relative` ancestor is required from the caller.
     #[props(default)]
     pub trailing: Option<Element>,
     /// Additional attributes (`name`, `min`, `max`, `step`, `inputmode`,
@@ -220,8 +221,7 @@ pub fn InputBase(props: InputBaseProps) -> Element {
     );
 
     let type_str = props.r#type.as_ref();
-    // Floating-label hack needs a non-empty placeholder; default to a static space.
-    let actual_placeholder = props.placeholder.clone().unwrap_or_else(|| " ".to_string());
+    let actual_placeholder = props.placeholder.clone().unwrap_or_default();
 
     // Autofocus waits for the AutofocusGate (when provided) so the keyboard
     // doesn't open mid-transition; without a gate it fires on mount.
@@ -245,7 +245,7 @@ pub fn InputBase(props: InputBaseProps) -> Element {
     let on_key_down = props.on_key_down;
     let disabled = props.disabled;
 
-    rsx! {
+    let input = rsx! {
         input {
             "data-name": "Input",
             r#type: type_str,
@@ -263,11 +263,22 @@ pub fn InputBase(props: InputBaseProps) -> Element {
             onkeydown: move |ev| on_key_down.call(ev),
             ..props.attributes,
         }
-        if let Some(trailing) = props.trailing {
-            div {
-                class: "absolute end-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 z-10",
-                {trailing}
+    };
+
+    match props.trailing {
+        None => input,
+        // The trailing adornment is absolutely positioned, so it needs a
+        // `relative` box. Own one here instead of depending on the caller's
+        // ancestor — an outer `relative` (form frames provide one) just becomes
+        // a harmless parent; a standalone caller now works with no wrapper.
+        Some(trailing) => rsx! {
+            div { class: "relative w-full",
+                {input}
+                div {
+                    class: "absolute end-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 z-10",
+                    {trailing}
+                }
             }
-        }
+        },
     }
 }

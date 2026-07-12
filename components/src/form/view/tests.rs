@@ -33,7 +33,7 @@ mod tooltip_render {
 
     /// Each label-bearing component, rendered once with a tooltip and once
     /// without. A successful `rebuild_in_place` proves the whole tooltip path
-    /// (FormLabel/SelectItemLabel/Checkbox/RadioGroup → LabelHint → Tooltip →
+    /// (FieldLabel/SelectItemLabel/Checkbox/RadioGroup → LabelHint → Tooltip →
     /// CircleHelp icon) mounts without panicking. The crate ships no SSR
     /// renderer, so output-string assertions aren't available here.
     fn mount(app: fn() -> Element) {

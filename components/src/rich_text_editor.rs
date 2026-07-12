@@ -7,7 +7,7 @@ on_web! {
 }
 
 use crate::field_name::Field;
-use crate::form::{FieldContext, FloatingLabel, FormContext, FormError, FormField};
+use crate::form::{FieldContext, FieldLabel, FormContext, FormError, FormField};
 #[cfg(feature = "web")]
 use crate::icon::{Icon, IconName};
 #[cfg(feature = "web")]
@@ -660,7 +660,8 @@ pub fn RichTextEditor(
 
     rsx! {
         FormField { field,
-            div { class: "relative w-full mt-2",
+            FieldLabel { "{label}" }
+            div { class: "relative w-full",
                 RichTextEditorFormControl {
                     autofocus: autofocus,
                     show_bold: show_bold,
@@ -670,7 +671,6 @@ pub fn RichTextEditor(
                     show_align: show_align,
                     show_link: show_link,
                 }
-                FloatingLabel { textarea: true, "{label}" }
             }
             FormError {}
         }

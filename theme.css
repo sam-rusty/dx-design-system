@@ -66,7 +66,9 @@
     }
 }
 
-.dot-pulse {
+/* :where() keeps this zero-specificity so a positioning utility on the dot
+   (e.g. `absolute top-2.5 right-2.5`) still wins while pulsing. */
+:where(.dot-pulse) {
     position: relative;
 }
 .dot-pulse::after {

@@ -14,26 +14,35 @@ pub enum AlertVariant {
 impl AlertVariant {
     fn container_class(self) -> &'static str {
         match self {
-            AlertVariant::Destructive => "border-destructive/40 bg-destructive/10 text-destructive",
-            AlertVariant::Warning => "border-warning/40 bg-warning/10 text-warning",
-            AlertVariant::Info => "border-primary/40 bg-primary/10 text-primary",
-            AlertVariant::Success => "border-success/40 bg-success/10 text-success",
+            AlertVariant::Destructive => "bg-destructive/8",
+            AlertVariant::Warning => "bg-warning/8",
+            AlertVariant::Info => "bg-primary/8",
+            AlertVariant::Success => "bg-success/8",
+        }
+    }
+
+    fn icon_class(self) -> &'static str {
+        match self {
+            AlertVariant::Destructive => "text-destructive",
+            AlertVariant::Warning => "text-warning",
+            AlertVariant::Info => "text-primary",
+            AlertVariant::Success => "text-success",
         }
     }
 
     fn icon(self) -> IconName {
         match self {
-            AlertVariant::Destructive | AlertVariant::Warning | AlertVariant::Info => {
-                IconName::CircleAlert
-            }
-            AlertVariant::Success => IconName::Check,
+            AlertVariant::Destructive => IconName::OctagonAlertFilled,
+            AlertVariant::Warning => IconName::TriangleAlertFilled,
+            AlertVariant::Info => IconName::InfoFilled,
+            AlertVariant::Success => IconName::CheckCircleFilled,
         }
     }
 }
 
-const BASE_CLASS: &str = "flex items-start gap-3 rounded-lg border px-4 py-3";
-const ICON_CLASS: &str = "mt-0.5 size-4 shrink-0";
-const TEXT_CLASS: &str = "text-sm font-medium";
+const BASE_CLASS: &str = "flex items-start gap-3 rounded-xl px-3.5 py-3";
+const ICON_CLASS: &str = "size-5 shrink-0";
+const TEXT_CLASS: &str = "text-sm font-medium text-foreground leading-snug";
 
 #[component]
 pub fn Alert(
@@ -42,10 +51,11 @@ pub fn Alert(
     children: Element,
 ) -> Element {
     let class = merge(&[BASE_CLASS, variant.container_class(), &class]);
+    let icon_class = merge(&[ICON_CLASS, variant.icon_class()]);
 
     rsx! {
         div { class, role: "alert",
-            Icon { name: variant.icon(), class: ICON_CLASS }
+            Icon { name: variant.icon(), class: icon_class }
             span { class: TEXT_CLASS, {children} }
         }
     }

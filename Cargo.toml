@@ -6,7 +6,7 @@ package.edition = "2024"
 package.version = "0.2.0"
 
 [workspace.dependencies]
-dioxus = { git = "https://github.com/DioxusLabs/dioxus", rev = "e1c63426fd39018223480ee354ae3e8485ab8e2a", features = ["router", "fullstack", "launch", "lib"], default-features = false }
+dioxus = { git = "https://github.com/DioxusLabs/dioxus", rev = "e1c63426fd39018223480ee354ae3e8485ab8e2a", features = ["router", "launch", "lib"], default-features = false }
 http = "1.4.2"
 js-sys = "0.3.102"
 num-traits = "0.2.19"

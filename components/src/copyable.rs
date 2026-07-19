@@ -1,6 +1,6 @@
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use std::cell::RefCell;
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use std::rc::Rc;
 
 use dioxus::prelude::*;
@@ -11,14 +11,14 @@ use crate::icon::{Icon, IconName};
 /// A re-armable, cancel-on-unmount window timer used to flip the "Copied!" state
 /// back after a delay. Replaces the leaked `closure::once_into_js` timer that
 /// could fire `set_copied` on an already-dropped signal.
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 #[derive(Default)]
 struct ResetTimer {
     handle: Option<i32>,
     _closure: Option<wasm_bindgen::closure::Closure<dyn FnMut()>>,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 impl ResetTimer {
     fn cancel(&mut self) {
         if let Some(handle) = self.handle.take()
@@ -30,7 +30,7 @@ impl ResetTimer {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 fn write_clipboard(text: &str) {
     if let Some(clipboard) = web_sys::window().map(|w| w.navigator().clipboard()) {
         let _ = clipboard.write_text(text);
@@ -43,7 +43,7 @@ fn write_clipboard(text: &str) {
 /// cancel-on-unmount timer instead of this fire-and-forget variant.
 #[cfg_attr(not(feature = "form"), allow(dead_code))]
 pub(crate) fn copy_to_clipboard(text: String, mut set_copied: Signal<bool>) {
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "web")]
     {
         use wasm_bindgen::JsCast;
         write_clipboard(&text);
@@ -56,7 +56,7 @@ pub(crate) fn copy_to_clipboard(text: String, mut set_copied: Signal<bool>) {
             );
         }
     }
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(feature = "web"))]
     {
         let _ = text;
         set_copied.set(true);
@@ -67,9 +67,9 @@ pub(crate) fn copy_to_clipboard(text: String, mut set_copied: Signal<bool>) {
 pub fn Copyable(text: String, #[props(default)] class: String) -> Element {
     let mut copied = use_signal(|| false);
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "web")]
     let timer = use_hook(|| Rc::new(RefCell::new(ResetTimer::default())));
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "web")]
     use_drop({
         let timer = timer.clone();
         move || timer.borrow_mut().cancel()
@@ -81,7 +81,7 @@ pub fn Copyable(text: String, #[props(default)] class: String) -> Element {
         if val.is_empty() {
             return;
         }
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(feature = "web")]
         {
             use wasm_bindgen::JsCast;
             write_clipboard(&val);
@@ -99,7 +99,7 @@ pub fn Copyable(text: String, #[props(default)] class: String) -> Element {
             }
             timer_ref._closure = Some(closure);
         }
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(feature = "web"))]
         {
             copied.set(true);
         }

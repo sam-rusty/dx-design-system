@@ -30,7 +30,7 @@ pub use ds_utils::format::{
     parse_datetime,
 };
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 pub fn today() -> Date {
     let js_date = js_sys::Date::new_0();
     let year = js_date.get_full_year() as i32;
@@ -39,7 +39,7 @@ pub fn today() -> Date {
     Date::from_calendar_date(year, time::Month::try_from(month).unwrap(), day).unwrap()
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "web"))]
 pub fn today() -> Date {
     let now = time::OffsetDateTime::now_utc();
     now.date()

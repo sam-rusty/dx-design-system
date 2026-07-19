@@ -14,26 +14,26 @@
 
 #![allow(unused_variables)]
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use std::cell::RefCell;
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use std::rc::Rc;
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use dioxus::prelude::*;
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use wasm_bindgen::JsCast;
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use wasm_bindgen::closure::Closure;
 
 /// Stack of active escape-listener instance ids; the last entry is the top-most
 /// overlay and the only one allowed to react to an Escape press.
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 #[derive(Clone)]
 struct EscapeStack(Rc<RefCell<Vec<usize>>>);
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 fn escape_stack() -> EscapeStack {
     try_consume_context::<EscapeStack>()
         .unwrap_or_else(|| provide_context(EscapeStack(Rc::new(RefCell::new(Vec::new())))))
@@ -44,11 +44,11 @@ fn escape_stack() -> EscapeStack {
 /// Mirrors [`EscapeStack`] so outside-dismiss nests the same way Escape does —
 /// a click inside a stacked child overlay (a sibling DOM subtree via `Portal`)
 /// never dismisses its parent.
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 #[derive(Clone)]
 struct OverlayStack(Rc<RefCell<Vec<usize>>>);
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 fn overlay_stack() -> OverlayStack {
     try_consume_context::<OverlayStack>()
         .unwrap_or_else(|| provide_context(OverlayStack(Rc::new(RefCell::new(Vec::new())))))
@@ -57,7 +57,7 @@ fn overlay_stack() -> OverlayStack {
 /// Call `on_escape` when the user presses Escape, but only while this listener
 /// is the top-most one (the most recently mounted overlay wins).
 pub fn use_escape_listener(on_escape: impl FnMut() + 'static) {
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "web")]
     {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let id = use_hook(|| NEXT.fetch_add(1, Ordering::Relaxed));
@@ -113,7 +113,7 @@ pub fn use_escape_listener(on_escape: impl FnMut() + 'static) {
             }
         });
     }
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(feature = "web"))]
     {
         let _ = on_escape;
     }
@@ -149,7 +149,7 @@ pub(crate) fn use_outside_dismiss_panel(
     is_open: ReadSignal<bool>,
     on_dismiss: impl FnMut() + 'static,
 ) {
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "web")]
     {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let id = use_hook(|| NEXT.fetch_add(1, Ordering::Relaxed));
@@ -229,7 +229,7 @@ pub(crate) fn use_outside_dismiss_panel(
             }
         });
     }
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(feature = "web"))]
     {
         let _ = (root_el, panel_el, is_open, on_dismiss);
     }
@@ -247,7 +247,7 @@ pub(crate) fn use_dismiss_on_viewport_change(
     is_open: ReadSignal<bool>,
     on_dismiss: impl FnMut() + 'static,
 ) {
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "web")]
     {
         let registered: Rc<RefCell<Option<Closure<dyn FnMut(web_sys::Event)>>>> =
             use_hook(|| Rc::new(RefCell::new(None)));
@@ -281,7 +281,7 @@ pub(crate) fn use_dismiss_on_viewport_change(
             }
         });
     }
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(feature = "web"))]
     {
         let _ = (is_open, on_dismiss);
     }

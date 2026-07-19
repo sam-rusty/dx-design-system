@@ -239,7 +239,7 @@ pub use rich_text_editor::{RichTextEditor, RichTextEditorBase, rte_insert_text};
 
 #[cfg(feature = "nav")]
 pub use app_shell::AppShellProvider;
-#[cfg(all(feature = "nav", target_arch = "wasm32"))]
+#[cfg(all(feature = "nav", feature = "web"))]
 pub use nav_sliding_indicator::sliding_indicator_style;
 #[cfg(feature = "nav")]
 pub use nav_sliding_indicator::{

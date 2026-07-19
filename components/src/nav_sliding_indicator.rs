@@ -24,11 +24,11 @@ pub fn sliding_indicator_class(axis: SlidingIndicatorAxis) -> &'static str {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 const INDICATOR_ITEM_FRACTION: f64 = 0.45;
 
 /// Inline `style` for the active tab’s indicator (WASM only; uses layout rects).
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 #[must_use]
 pub fn sliding_indicator_style(
     axis: SlidingIndicatorAxis,

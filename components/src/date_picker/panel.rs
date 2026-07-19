@@ -172,7 +172,7 @@ fn MonthHeader(state: CalendarState) -> Element {
 
 /// Move focus to the previous/next/up/down/first/last enabled day button inside
 /// `grid` in response to an arrow / Home / End key (WAI-ARIA grid navigation).
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 fn grid_focus_move(grid: &web_sys::Element, key: &Key) {
     use wasm_bindgen::{JsCast, JsValue};
 
@@ -239,7 +239,7 @@ fn DayGrid(
     let on_nav = move |e: KeyboardEvent| match e.key() {
         Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown | Key::Home | Key::End => {
             e.prevent_default();
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(feature = "web")]
             if let Some(grid) = grid_el.peek().clone() {
                 grid_focus_move(&grid, &e.key());
             }

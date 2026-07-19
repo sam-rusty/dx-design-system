@@ -1,3 +1,4 @@
+#[cfg(any(feature = "form-options", feature = "steps"))]
 pub fn split_pascal(s: &str) -> Vec<String> {
     let mut words = Vec::new();
     let mut current = String::new();
@@ -14,10 +15,12 @@ pub fn split_pascal(s: &str) -> Vec<String> {
     words
 }
 
+#[cfg(any(feature = "form-options", feature = "steps"))]
 pub fn pascal_to_title(s: &str) -> String {
     split_pascal(s).join(" ")
 }
 
+#[cfg(feature = "form-fields")]
 pub fn snake_to_title(s: &str) -> String {
     s.split('_')
         .filter(|w| !w.is_empty())
@@ -35,6 +38,7 @@ pub fn snake_to_title(s: &str) -> String {
         .join(" ")
 }
 
+#[cfg(feature = "form-options")]
 pub fn apply_rename_all(variant: &str, rule: Option<&str>) -> String {
     let words = split_pascal(variant);
     match rule {
@@ -80,6 +84,7 @@ pub fn apply_rename_all(variant: &str, rule: Option<&str>) -> String {
     }
 }
 
+#[cfg(feature = "form-options")]
 pub fn find_serde_rename_all(attrs: &[syn::Attribute]) -> Option<String> {
     for attr in attrs {
         if !attr.path().is_ident("serde") {
@@ -101,6 +106,7 @@ pub fn find_serde_rename_all(attrs: &[syn::Attribute]) -> Option<String> {
     None
 }
 
+#[cfg(feature = "form-options")]
 pub fn find_serde_rename(attrs: &[syn::Attribute]) -> Option<String> {
     for attr in attrs {
         if !attr.path().is_ident("serde") {
@@ -123,6 +129,7 @@ pub fn find_serde_rename(attrs: &[syn::Attribute]) -> Option<String> {
 }
 
 /// `#[strum(to_string = "...")]` on a variant — used as the radio/select label when present.
+#[cfg(feature = "form-options")]
 pub fn find_strum_to_string(attrs: &[syn::Attribute]) -> Option<String> {
     for attr in attrs {
         if !attr.path().is_ident("strum") {

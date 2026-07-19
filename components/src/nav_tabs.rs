@@ -1,10 +1,10 @@
 use crate::{Icon, IconName, Link};
 use dioxus::prelude::*;
 use ds_utils::format::merge;
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use wasm_bindgen::JsCast;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use super::nav_sliding_indicator::sliding_indicator_style;
 use super::nav_sliding_indicator::{SlidingIndicatorAxis, sliding_indicator_class};
 use crate::hooks::{use_escape_listener, use_outside_dismiss};
@@ -30,7 +30,7 @@ impl NavTabsDirection {
             (Self::Horizontal, true) => "text-primary font-bold",
             (Self::Horizontal, false) => "text-muted-foreground font-medium hover:text-foreground",
             (Self::Vertical, true) => {
-                if cfg!(target_arch = "wasm32") {
+                if cfg!(feature = "web") {
                     "text-primary font-bold"
                 } else {
                     "text-primary font-bold -ml-px pl-[calc(1rem-1px)]"
@@ -144,7 +144,7 @@ pub fn NavTabs<R: Routable + Clone + PartialEq + 'static>(
 
     use_effect(move || {
         let _ = path();
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(feature = "web")]
         {
             // Subscribe to nav + label refs so we re-measure after `onmounted` fills them (vertical
             // stacks often lose a path-only `setTimeout(0)` race vs horizontal row layout).
@@ -179,7 +179,7 @@ pub fn NavTabs<R: Routable + Clone + PartialEq + 'static>(
                 );
             }
         }
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(feature = "web"))]
         {
             let _ = (path(), nav_el(), label_els());
         }
@@ -189,13 +189,13 @@ pub fn NavTabs<R: Routable + Clone + PartialEq + 'static>(
         nav {
             class: "{direction.container_class()}",
             onmounted: move |e| {
-                #[cfg(target_arch = "wasm32")]
+                #[cfg(feature = "web")]
                 {
                     if let Some(el) = e.downcast::<web_sys::Element>() {
                         nav_el.set(Some(el.clone()));
                     }
                 }
-                #[cfg(not(target_arch = "wasm32"))]
+                #[cfg(not(feature = "web"))]
                 {
                     let _ = e;
                 }
@@ -223,7 +223,7 @@ pub fn NavTabs<R: Routable + Clone + PartialEq + 'static>(
                                         span {
                                             class: "inline-block",
                                             onmounted: move |e| {
-                                                #[cfg(target_arch = "wasm32")]
+                                                #[cfg(feature = "web")]
                                                 {
                                                     if let Some(el) = e.downcast::<web_sys::Element>() {
                                                         label_els.with_mut(|v| {
@@ -233,7 +233,7 @@ pub fn NavTabs<R: Routable + Clone + PartialEq + 'static>(
                                                         });
                                                     }
                                                 }
-                                                #[cfg(not(target_arch = "wasm32"))]
+                                                #[cfg(not(feature = "web"))]
                                                 {
                                                     let _ = (e, idx);
                                                 }
@@ -311,13 +311,13 @@ fn NavGroup<R: Routable + Clone + PartialEq + 'static>(
         div {
             class: "group/tab relative",
             onmounted: move |e| {
-                #[cfg(target_arch = "wasm32")]
+                #[cfg(feature = "web")]
                 {
                     if let Some(el) = e.downcast::<web_sys::Element>() {
                         root_el.set(Some(el.clone()));
                     }
                 }
-                #[cfg(not(target_arch = "wasm32"))]
+                #[cfg(not(feature = "web"))]
                 {
                     let _ = e;
                 }
@@ -338,7 +338,7 @@ fn NavGroup<R: Routable + Clone + PartialEq + 'static>(
                         span {
                             class: "inline-block",
                             onmounted: move |e| {
-                                #[cfg(target_arch = "wasm32")]
+                                #[cfg(feature = "web")]
                                 {
                                     if let Some(el) = e.downcast::<web_sys::Element>() {
                                         label_els
@@ -349,7 +349,7 @@ fn NavGroup<R: Routable + Clone + PartialEq + 'static>(
                                             });
                                     }
                                 }
-                                #[cfg(not(target_arch = "wasm32"))]
+                                #[cfg(not(feature = "web"))]
                                 {
                                     let _ = (e, idx);
                                 }

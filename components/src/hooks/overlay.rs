@@ -36,7 +36,7 @@ pub(crate) fn use_overlay(mut open: Signal<bool>) -> Signal<Option<web_sys::Elem
         }
     });
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "web")]
     {
         use wasm_bindgen::JsCast;
 

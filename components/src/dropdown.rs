@@ -113,7 +113,7 @@ struct DropdownContext {
 
 /// Move focus to the previous/next/first/last `menuitem` inside `root` in
 /// response to an arrow / Home / End key, so the menu is keyboard-operable.
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 fn menu_focus_move(root: &web_sys::Element, key: &Key) {
     use wasm_bindgen::{JsCast, JsValue};
 
@@ -211,7 +211,7 @@ pub fn DropdownMenu(
     let on_nav = move |e: KeyboardEvent| match e.key() {
         Key::ArrowDown | Key::ArrowUp | Key::Home | Key::End => {
             e.prevent_default();
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(feature = "web")]
             if let Some(root) = root_el.peek().clone() {
                 menu_focus_move(&root, &e.key());
             }

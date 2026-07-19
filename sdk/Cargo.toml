@@ -9,5 +9,19 @@ ds-macros = { workspace = true }
 ds-utils = { workspace = true }
 
 [features]
+default = ["full"]
+# Family passthroughs to ds-components — same names, same graph; a slim
+# consumer picks families: `default-features = false, features = ["form"]`.
+full = ["ds-components/full"]
+calendar = ["ds-components/calendar"]
+charts = ["ds-components/charts"]
+data-table = ["ds-components/data-table"]
+date-picker = ["ds-components/date-picker"]
+display = ["ds-components/display"]
+feedback = ["ds-components/feedback"]
+form = ["ds-components/form"]
+nav = ["ds-components/nav"]
+overlay = ["ds-components/overlay"]
+rich-text = ["ds-components/rich-text"]
 web = ["ds-components/web", "ds-utils/web"]
 server = ["ds-utils/server"]

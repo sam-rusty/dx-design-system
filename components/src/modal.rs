@@ -62,7 +62,7 @@ pub fn Modal(
                     onmounted: move |e| {
                         if let Some(el) = e.downcast::<web_sys::Element>() {
                             root_el.set(Some(el.clone()));
-                            #[cfg(target_arch = "wasm32")]
+                            #[cfg(feature = "web")]
                             {
                                 use wasm_bindgen::JsCast;
                                 if let Some(html) = el.dyn_ref::<web_sys::HtmlElement>() {

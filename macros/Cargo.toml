@@ -11,6 +11,16 @@ proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full"] }
 
+[features]
+default = ["full"]
+# One flag per macro: `default-features = false, features = ["steps"]`.
+full = ["form-fields", "form-options", "on-server", "on-web", "steps"]
+form-fields = []
+form-options = []
+on-server = []
+on-web = []
+steps = []
+
 [dev-dependencies]
 serde = { workspace = true, features = ["derive"] }
 ds-utils = { workspace = true }

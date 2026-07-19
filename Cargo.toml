@@ -22,6 +22,6 @@ wasm-bindgen = { version = "0.2.125" }
 web-sys = "0.3.102"
 
 # local crates
-ds-components = { path = "./components" }
+ds-components = { path = "./components", default-features = false }
 ds-macros = { path = "./macros" }
 ds-utils = { path = "./utils", default-features = false }

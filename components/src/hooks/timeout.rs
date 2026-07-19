@@ -8,18 +8,18 @@
 
 #![allow(unused_variables)]
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use std::cell::RefCell;
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use wasm_bindgen::JsCast;
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 use wasm_bindgen::closure::Closure;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 #[derive(Default)]
 struct TimeoutState {
     handle: Option<i32>,
@@ -27,7 +27,7 @@ struct TimeoutState {
     _closure: Option<Closure<dyn FnMut()>>,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "web")]
 impl TimeoutState {
     fn schedule(state: &Rc<RefCell<Self>>, delay_ms: u32, on_elapsed: impl FnOnce() + 'static) {
         let Some(win) = web_sys::window() else {
@@ -62,7 +62,7 @@ impl TimeoutState {
 /// Schedule `on_elapsed` to run once after `delay_ms`, cancelled automatically on
 /// unmount. Returns a callback that cancels the pending timer early.
 pub(crate) fn use_timeout(delay_ms: u32, on_elapsed: impl FnOnce() + 'static) -> Callback<()> {
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "web")]
     {
         let state = use_hook(|| Rc::new(RefCell::new(TimeoutState::default())));
 
@@ -78,7 +78,7 @@ pub(crate) fn use_timeout(delay_ms: u32, on_elapsed: impl FnOnce() + 'static) ->
 
         use_callback(move |()| state.borrow_mut().cancel())
     }
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(feature = "web"))]
     {
         let _ = (delay_ms, on_elapsed);
         use_callback(|()| {})

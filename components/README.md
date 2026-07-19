@@ -2,6 +2,33 @@
 
 How to use exported UI from `components`. The full export list is [`src/lib.rs`](src/lib.rs).
 
+## Feature flags
+
+Every component family ships behind a cargo feature; all are on by default
+(`default = ["full"]`). To compile only what you use:
+
+```toml
+ds-components = { path = "../components", default-features = false, features = ["form", "nav"] }
+```
+
+| Feature | Contents | Implies |
+|---|---|---|
+| `form` | form store, inputs, checkbox/radio/select/textarea, slider, file upload, stepper, step dots | `feedback` |
+| `calendar` | MonthView, TimeGrid | — |
+| `date-picker` | DatePicker, DateRangePicker, DateTimePicker | `calendar`, `form`, `overlay` |
+| `charts` | Donut, AreaLine, StackedBar | — |
+| `data-table` | DataTable, ListView, ResourceView | `form`, `feedback` |
+| `rich-text` | RichTextEditor | `form`, `overlay` |
+| `nav` | NavTabs, Tabs, SegmentedControl, AppShellProvider, RouteTransitionOutlet | `overlay`, `feedback` |
+| `feedback` | Toast, Alert, Tooltip, StatusDot, LoadingOverlay, Progress, fallback views | — |
+| `overlay` | Modal, Popover, DropdownMenu | — |
+| `display` | Accordion, Avatar, StatTile, EmptyState, SectionHeader | — |
+
+Core primitives (Button, Text, Title, Icon, layout, Card, Badge, Link, Spinner,
+Copyable, field-name schema types) are always compiled. `web` is orthogonal to
+family flags. `validator` is only pulled in by `form`, `time` only by
+`calendar`.
+
 ## Maintaining this file
 
 - Document **usage only**: prop tables and `view!` / `rsx!` examples aligned with the current API.

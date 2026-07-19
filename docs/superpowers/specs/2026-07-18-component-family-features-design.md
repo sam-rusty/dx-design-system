@@ -37,9 +37,9 @@ Core (always compiled, no flag): `icon`, `icon_bubble`, `button`, `link`,
 | `data-table` | data_table, list_view, resource_view | `form`, `feedback` |
 | `rich-text` | rich_text_editor | `form`, `overlay` |
 | `nav` | nav_tabs, nav_sliding_indicator, tabs, segmented_control, back, app_shell, route_transition_outlet | `overlay`, `feedback` |
-| `feedback` | toast, alert, tooltip, status_dot, loading_overlay, progress | — |
+| `feedback` | toast, alert, tooltip, status_dot, loading_overlay, progress, fallback_view | — |
 | `overlay` | modal, popover, dropdown | — |
-| `display` | accordion, avatar, stat_tile, empty_state, section_header, fallback_view | — |
+| `display` | accordion, avatar, stat_tile, empty_state, section_header | — |
 | `full` | meta-feature: all of the above | all families |
 
 `default = ["full"]`. The existing `web` feature is orthogonal and composes

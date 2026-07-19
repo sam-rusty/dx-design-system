@@ -41,6 +41,7 @@ fn write_clipboard(text: &str) {
 ///
 /// Retained for form-field copy actions (`form/view`); [`Copyable`] uses its own
 /// cancel-on-unmount timer instead of this fire-and-forget variant.
+#[cfg_attr(not(feature = "form"), allow(dead_code))]
 pub(crate) fn copy_to_clipboard(text: String, mut set_copied: Signal<bool>) {
     #[cfg(target_arch = "wasm32")]
     {

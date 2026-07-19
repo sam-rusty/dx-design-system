@@ -562,7 +562,9 @@ impl<T, F: DeserializeOwned> FieldKey<T> for FieldArray<T, F> {
     }
 }
 
-#[cfg(test)]
+// Gated on `form`: exercises the `FormFields` derive + `validator`, both of
+// which only exist when the form family is enabled.
+#[cfg(all(test, feature = "form"))]
 mod tests {
     use serde::{Deserialize, Serialize};
     use strum_macros::Display;

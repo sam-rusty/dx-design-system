@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
+use super::value::FormValue;
 use super::*;
 use crate as components;
 use crate::{FormFields, FormOptions};

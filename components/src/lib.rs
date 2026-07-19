@@ -43,6 +43,7 @@ pub(crate) mod loading_overlay;
 pub(crate) mod nav_sliding_indicator;
 pub(crate) mod nav_tabs;
 pub(crate) mod number_stepper;
+pub(crate) mod password_strength;
 pub(crate) mod placement;
 pub(crate) mod popover;
 pub(crate) mod portal;
@@ -140,6 +141,7 @@ pub use nav_sliding_indicator::{
 };
 pub use nav_tabs::{NavItem, NavTabs, NavTabsDirection};
 pub use number_stepper::NumberStepper;
+pub use password_strength::{PasswordStrength, PasswordStrengthProps};
 pub use placement::{Align, Placement};
 pub use popover::{Popover, PopoverConfirm};
 pub use portal::Portal;

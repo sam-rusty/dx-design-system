@@ -24,12 +24,12 @@ How to use exported UI from `components`. The full export list is [`src/lib.rs`]
 - [Separator](#separator)
 - [Forms](#forms)
 - [TextArea](#textarea)
+- [RichTextEditor](#richtexteditor)
 - [Checkbox](#checkbox)
 - [RadioGroup](#radiogroup)
 - [Select](#select)
 - [DatePicker](#datepicker)
 - [Calendar](#calendar)
-- [TimeGrid](#timegrid)
 - [DropdownMenu](#dropdownmenu)
 - [NavTabs](#navtabs)
 - [RouteTransitionOutlet](#routetransitionoutlet)
@@ -42,20 +42,29 @@ How to use exported UI from `components`. The full export list is [`src/lib.rs`]
 - [ResourceView](#resourceview)
 - [use_action_feedback](#use_action_feedback)
 - [Toaster / Toast](#toaster--toast)
-- [ChipToggle](#chiptoggle)
-- [Tabs](#tabs)
-- [Tooltip](#tooltip)
-- [Accordion](#accordion)
 - [ToggleCard](#togglecard)
 - [Switch](#switch)
+- [Tabs](#tabs)
 - [SegmentedControl](#segmentedcontrol)
+- [ChipToggle](#chiptoggle)
 - [EmptyState](#emptystate)
 - [IconBubble](#iconbubble)
-- [Icon](#icon)
 - [SectionHeader](#sectionheader)
 - [DataTable](#datatable)
+- [Popover / PopoverConfirm](#popover--popoverconfirm)
 - [Charts](#charts)
+- [Tooltip](#tooltip)
+- [Accordion](#accordion)
 - [FileUpload](#fileupload)
+- [Icon](#icon)
+- [Modal](#modal)
+- [Slider](#slider)
+- [Progress](#progress)
+- [NumberStepper](#numberstepper)
+- [StatTile](#stattile)
+- [StatusDot](#statusdot)
+- [StepDots](#stepdots)
+- [Portal](#portal)
 - [Further exports](#further-exports)
 
 ---
@@ -70,14 +79,15 @@ How to use exported UI from `components`. The full export list is [`src/lib.rs`]
 | `SectionErrorFallback` | `ctx: ErrorContext` |
 | `NotFound` | `route: Vec<String>`, `logo: Element` |
 | `WorkInProgress` | `title: String` |
-| `ThemeMenuView` | None — enable crate **`web`** feature for client theme persistence |
-| `Theme` | Enum: `Light`, `Dark`, `System` |
+| `AppShellProvider` | `children: Element` — provides `ToastStore`, mounts `Toaster`, dropdown coordination |
 
 ```rust
-use components::ThemeMenuView;
+use components::AppShellProvider;
 
 rsx! {
-    ThemeMenuView {}
+    AppShellProvider {
+        Router::<Route> {}
+    }
 }
 ```
 
@@ -207,9 +217,11 @@ view! {
 | Prop | Type | Default |
 |------|------|---------|
 | `variant` | `BadgeVariant` | `Default` |
-| `size` | `BadgeSize` | `Default` |
+| `size` | `BadgeSize` | `Sm` |
 | `class` | `String` | `""` |
-| `children` | `Children` | required |
+| `children` | `Element` | required |
+
+`BadgeSize`: `Xs`, `Sm`, `Md`, `Lg`.
 
 ```rust
 use components::{Badge, BadgeVariant, BadgeSize};
@@ -248,8 +260,14 @@ view! {
 |------|------|---------|
 | `variant` | `TextVariant` | `Default` |
 | `size` | `TextSize` | `Default` |
+| `tone` | `TextTone` | `Default` |
+| `weight` | `TextWeight` | `Normal` |
+| `inline` | `bool` | `false` |
 | `class` | `String` | `""` |
-| `children` | `Children` | required |
+| `onclick` | `EventHandler<MouseEvent>` | no-op |
+| `children` | `Element` | required |
+
+`TextTone`: `Default`, `Muted`, `Primary`, `Warning`, `Destructive`, `Success`. `TextWeight`: `Normal`, `Medium`, `Semibold`, `Bold`.
 
 ### `Title`
 
@@ -259,7 +277,7 @@ Emits the heading element matching `size` (`H1`..`H6` → `<h1>`..`<h6>`; `Defau
 |------|------|---------|
 | `size` | `TitleSize` | `Default` |
 | `class` | `String` | `""` |
-| `children` | `Children` | required |
+| `children` | `Element` | required |
 
 ```rust
 use components::{Text, TextVariant, TextSize, Title, TitleSize};
@@ -283,6 +301,7 @@ view! {
 | `loading` | `bool` | `false` (disables + swaps `icon` for a spinner) |
 | `disabled` | `bool` | `false` |
 | `button_type` | `&'static str` | `"button"` |
+| `bare` | `bool` | `false` |
 | `onclick` | `EventHandler<MouseEvent>` | no-op |
 | `attributes` | `Vec<Attribute>` (`extends = GlobalAttributes`) | `[]` (e.g. `aria-label`, `id`, `data-*`) |
 | `children` | `Element` | required |
@@ -311,7 +330,9 @@ rsx! {
 | `class` | `String` | `""` |
 | `full_height` | `bool` | `false` |
 | `compact` | `bool` | `false` |
-| `onclick` | `EventHandler<()>` | — |
+| `variant` | `Option<CardVariant>` | `None` |
+| `onclick` | `Option<EventHandler<()>>` | `None` |
+| `attributes` | `Vec<Attribute>` (`extends = GlobalAttributes`) | `[]` |
 | `children` | `Element` | required |
 
 ```rust
@@ -365,7 +386,6 @@ rsx! {
 | Prop | Type | Default |
 |------|------|---------|
 | `to` | `impl Into<NavigationTarget>` | required |
-| `inline_row` | `bool` | `false` |
 | `class` | `String` | `""` |
 
 ```rust
@@ -373,7 +393,6 @@ use components::Back;
 
 rsx! {
     Back { to: "/dashboard" }
-    Back { to: "/account", inline_row: true }
 }
 ```
 
@@ -387,7 +406,7 @@ rsx! {
 | `style` | `String` | `""` |
 | `src` | `Option<String>` | `None` |
 | `alt` | `Option<String>` | `None` |
-| `children` | `Children` | required |
+| `children` | `Element` | required |
 
 Renders `src` as an image when set, falling back to `children` (initials) on load
 error or when no `src` is given. With `alt`, the container is exposed as `role="img"`.
@@ -409,7 +428,7 @@ view! {
 
 | Prop | Type | Default |
 |------|------|---------|
-| `orientation` | `SeparatorOrientation` | `Horizontal` |
+| `orientation` | `Option<SeparatorOrientation>` | `Horizontal` |
 | `decorative` | `bool` | `false` (when `true`, emits `role="none"` and drops `aria-orientation`) |
 | `class` | `String` | `""` |
 
@@ -448,7 +467,7 @@ Public fields: `values_signal`, `errors_signal`, `touched_signal`, `default_sche
 | `validate_and_get` | Parse + `Validate` → `Option<T>` |
 | `validate_fields(&[Field])` | Validate subset |
 | `submit(fn(T))` | `validate_and_get` then callback |
-| `set_server_error` | Populate field/global errors from a server `AppError` |
+| `set_server_error` | Populate field/global errors from a server `DsError` |
 
 ### `FormProvider`
 
@@ -460,7 +479,7 @@ Public fields: `values_signal`, `errors_signal`, `touched_signal`, `default_sche
 | `inline_error` | `bool` | `true` | Render server errors in the form's global error slot; set `false` when errors are surfaced via toast |
 | `children` | `Element` | required | |
 
-When `action` is provided, FormProvider derives loading state from `action.pending()` and stores a submit callback that calls `form.validate_and_get()` then `action.call(data)`. Form auto-submits via this callback when no `on_submit` prop is given. On a failed `action`, the server `AppError` is fed to `form.set_server_error` so it renders below the submit button (unless `inline_error` is `false`).
+When `action` is provided, FormProvider derives loading state from `action.pending()` and stores a submit callback that calls `form.validate_and_get()` then `action.call(data)`. Form auto-submits via this callback when no `on_submit` prop is given. On a failed `action`, the server `DsError` is fed to `form.set_server_error` so it renders below the submit button (unless `inline_error` is `false`).
 
 ### `FormSubmit<T>`
 
@@ -557,8 +576,8 @@ the same behavior works with or without a form: `TextInputBase`, `EmailInputBase
 display, raw decimal value, keystroke filter), `PercentageInputBase` (percent display, `min`/`max`
 clamp on commit), `PasswordInputBase` (reveal toggle in the trailing slot).
 
-All share `TypedInputBaseProps` (same shape as `InputBase` minus `r#type`/`trailing`/`unstyled`
-extras); `value` is always the *raw* value. `PercentageInputBase` adds `min`/`max: f64`.
+All share `TypedInputBaseProps` (same shape as `InputBase` minus `r#type`/`trailing`);
+`value` is always the *raw* value. `PercentageInputBase` adds `min`/`max: f64`.
 
 ### `ColorSwatchPicker`
 
@@ -593,6 +612,29 @@ All six share one props shape (`TypedInputProps`): `field` (required, `impl Into
 commit. `PasswordInput` includes a reveal (eye) toggle. Formatting/parsing behavior lives in the
 corresponding typed base, so it is identical standalone and in forms.
 
+### `PasswordStrength`
+
+Strength meter (3 segments + Weak/Good/Strong label) and a live minimum-length checklist for a
+form-bound password field. Reads the field's value from the surrounding form context — place it
+beside the `PasswordInput` it describes.
+
+| Prop | Type | Default |
+|------|------|---------|
+| `field` | `impl Into<Field>` | required |
+| `min_len` | `usize` | `8` |
+| `class` | `String` | `""` |
+| `bar_class` | `String` | `"bg-primary"` |
+| `bar_muted_class` | `String` | `"bg-muted"` |
+| `check_class` | `String` | `"text-success"` |
+| `check_muted_class` | `String` | `"text-muted-foreground"` |
+
+```rust
+rsx! {
+    PasswordInput { field: SignupCreds::password }
+    PasswordStrength { field: SignupCreds::password }
+}
+```
+
 ### `FormField`
 
 | Prop | Type | Default |
@@ -608,17 +650,17 @@ corresponding typed base, so it is identical standalone and in forms.
 | `children` | `Option<Element>` | `None` |
 | `errors` | `Option<Vec<String>>` | `None` |
 
-### `FormSeparator` / `FormLegend`
+### `FormSeparator`
 
-`FormLegend`: `variant` (`FormLegendVariant`), `class`, `children`.
+`FormSeparator`: `class` (`String`, `""`), `children` (`Option<Element>`, `None` — optional inline label).
 
 ### Layout helpers
 
 `FormSet`, `FormGroup`, `FormContent`, `FormTitle`, `FormDescription` — use inside `FormProvider` like other examples.
 
-`FloatingLabel` is the one floating label used by every form-bound field (peer-CSS mode for real
-inputs, signal-driven mode via `floated: Option<ReadSignal<bool>>` for button-based controls like
-Select and the date pickers). `FormLabel` remains as a deprecated alias.
+`FieldLabel` is the one field label for the form family: a static label stacked above the control.
+Props: `class` (`String`, `""`), `html_for` (`String`, `""` — defaults to the surrounding field's
+name), `tooltip` (`Option<Element>`, `None`), `children` (`Element`, required).
 
 ```rust
 use components::form::{Form, FormGroup, FormProvider, FormSet, Input};
@@ -697,7 +739,13 @@ Standalone styled `<textarea>` (no `FormField` wrapper), controlled or uncontrol
 | `disabled` | `ReadSignal<bool>` | `false` | |
 | `size` | `FieldSize` | `Default` | |
 | `resize` | `TextAreaResize` | `Vertical` | |
+| `class` | `String` | `""` | extra classes; full class list when `unstyled` |
+| `placeholder` | `Option<String>` | `None` | |
+| `id` | `Option<String>` | `None` | form bindings set this to the field name |
 | `autofocus` | `bool` | `false` | |
+| `unstyled` | `bool` | `false` | skip built-in styling; `class` used verbatim |
+| `aria_invalid` | `Option<String>` | `None` | form bindings set `"true"` on validation failure |
+| `aria_describedby` | `Option<String>` | `None` | the field's error element id |
 | ...attributes | extends `GlobalAttributes` + `textarea` | | `rows`, `cols`, `minlength`, `maxlength`, `name`, ... |
 
 `textarea_insert_at_cursor(element_id, text)` inserts text at the textarea's (or text `Input`'s)
@@ -753,6 +801,8 @@ Use `RichTextEditorBase` when you need an uncontrolled editor outside a form:
 | `value` | `Option<Signal<String>>` | `None` |
 | `on_change` | `Option<EventHandler<String>>` | `None` |
 | `onblur` | `Option<EventHandler<FocusEvent>>` | `None` |
+| `aria_invalid` | `Option<String>` | `None` |
+| `aria_describedby` | `Option<String>` | `None` |
 | `inline` | `bool` | `false` |
 | `content_class` | `String` | `""` |
 | `content_style` | `String` | `""` |
@@ -835,7 +885,7 @@ rsx! {
 | `class` | `String` | `""` |
 | `options` | `&'static [(&'static str, &'static str)]` | `&[]` |
 | `tooltip` | `Option<Element>` | `None` — when set, renders a visible group label (the field label) with a `circle-help` hint above the options; when `None`, no visible group label (today's behavior, aria-label only) |
-| `children` | `Option<Children>` | `None` |
+| `children` | `Option<Element>` | `None` |
 
 ```rust
 use components::{RadioGroup, RadioGroupDirection};
@@ -867,7 +917,7 @@ view! {
 | `size` | `FieldSize` | `Default` |
 | `options` | `&'static [(&'static str, &'static str)]` | `&[]` |
 | `tooltip` | `Option<Element>` | `None` — `circle-help` hint after the floating label |
-| `children` | `Option<Children>` | `None` |
+| `children` | `Option<Element>` | `None` |
 
 `SelectBase` (standalone, with `use_select_contexts(value, on_change: Callback<String>, dynamic,
 limit, multiple)`): `disabled` is `ReadSignal<bool>`, `size` is `FieldSize`.
@@ -888,20 +938,19 @@ view! {
 
 ## DatePicker
 
-Stored values: `DatePicker` → `YYYY-MM-DD`; `DateRangePicker` → JSON `["YYYY-MM-DD","YYYY-MM-DD"]`; `DateTimePicker` → `YYYY-MM-DD HH:MM:SS` (matches `utils::types::DateTime` `Display`).
+Stored values: `DatePicker` → `YYYY-MM-DD`; `DateRangePicker` → JSON `["YYYY-MM-DD","YYYY-MM-DD"]`; `DateTimePicker` → `YYYY-MM-DD HH:MM:SS` (matches `components::DateTime` `Display`).
 
 | Component | Props |
 |-----------|--------|
-| `DatePicker` | `field` (`impl Into<Field>`), `class`, `min: Option<utils::types::Date>`, `max: Option<utils::types::Date>`, `disabled: ReadSignal<bool>`, `tooltip: Option<Element>` |
-| `DateRangePicker` | `field`, `class`, `min: Option<utils::types::Date>`, `max: Option<utils::types::Date>`, `disabled: ReadSignal<bool>`, `tooltip` |
-| `DateTimePicker` | `field`, `class`, `min: Option<utils::types::DateTime>`, `max: Option<utils::types::DateTime>`, `disabled: ReadSignal<bool>`, `tooltip` |
-| `DatePickerBase` | standalone (no form binding): `value: ReadSignal<Option<String>>` (`YYYY-MM-DD`; `Some` = controlled), `on_value_change: Callback<String>`, `class`, `disabled: ReadSignal<bool>`, `min`/`max: Option<Signal<utils::types::Date>>`, `is_open: Option<Signal<bool>>` |
+| `DatePicker` | `field` (`impl Into<Field>`), `class`, `min: Option<Date>`, `max: Option<Date>`, `disabled: ReadSignal<bool>`, `tooltip: Option<Element>` |
+| `DateRangePicker` | `field`, `class`, `min: Option<Date>`, `max: Option<Date>`, `disabled: ReadSignal<bool>`, `tooltip` |
+| `DateTimePicker` | `field`, `class`, `min: Option<DateTime>`, `max: Option<DateTime>`, `disabled: ReadSignal<bool>`, `tooltip` |
+| `DatePickerBase` | standalone (no form binding): `value: ReadSignal<Option<String>>` (`YYYY-MM-DD`; `Some` = controlled), `on_value_change: Callback<String>`, `class`, `disabled: ReadSignal<bool>`, `min`/`max: Option<Signal<Date>>`, `is_open: Option<Signal<bool>>` |
 
-Use `DatePickerBase` when you need a controlled date picker outside a `FormProvider` (drive it with your own `value`/`on_value_change`); the `field`-bound `DatePicker` is preferred inside forms. `DateRangePickerBase` / `DateTimePickerBase` follow the same shape. `min` and `max` accept typed values from `utils::types` (`Date` for `DatePicker`/`DateRangePicker`; `DateTime` for `DateTimePicker`). Dates outside the range are rendered disabled in the calendar and rejected in text-input mode. `Date::default()` / `DateTime::default()` return today / today-at-midnight and are convenient for "no past" or "no future" constraints.
+Use `DatePickerBase` when you need a controlled date picker outside a `FormProvider` (drive it with your own `value`/`on_value_change`); the `field`-bound `DatePicker` is preferred inside forms. `DateTimePickerBase` follows the same shape (there is no exported `DateRangePickerBase`). `min` and `max` accept the typed values `components::Date` / `components::DateTime` (`Date` for `DatePicker`/`DateRangePicker`; `DateTime` for `DateTimePicker`). Dates outside the range are rendered disabled in the calendar and rejected in text-input mode. `Date::default()` / `DateTime::default()` return today / today-at-midnight and are convenient for "no past" or "no future" constraints.
 
 ```rust
-use components::{DatePicker, DateRangePicker, DateTimePicker};
-use utils::types::{Date, DateTime};
+use components::{DatePicker, DateRangePicker, DateTimePicker, Date, DateTime};
 
 rsx! {
     // no constraints
@@ -915,6 +964,7 @@ rsx! {
     // task due date — can't be in the past
     DateTimePicker { field: TaskForm::due_date, min: DateTime::default() }
 }
+```
 
 ---
 
@@ -1256,12 +1306,15 @@ use components::Steps;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Steps)]
 enum MyStep {
-    #[step(title = "Personal", description = "…", fields = ["name", "email"])]
+    #[step(title = "Personal", description = "…")]
     Personal,
     #[step(title = "Review", description = "…")]
     Review,
 }
 ```
+
+`#[step(...)]` accepts `title` and `description` only. Step field lists come from the `Step`
+`fields` prop (or `StepDefinition::fields()`), not the derive.
 
 ### `MultiStepForm`
 
@@ -1269,7 +1322,7 @@ enum MyStep {
 |------|------|---------|
 | `form` | `Form<T>` | required |
 | `initial` | `Option<S>` | `None` |
-| `disabled` | `Option<ReadSignal<bool>>` | `None` |
+| `disabled` | `Option<Signal<bool>>` | `None` |
 | `persist_key` | `Option<String>` | `None` |
 | `on_step_change` | `Option<EventHandler<(usize, usize)>>` | `None` |
 | `children` | `Element` | required |
@@ -1278,10 +1331,11 @@ enum MyStep {
 
 | Prop | Type | Default |
 |------|------|---------|
-| `id` | `S: StepDef` | required |
-| `title` / `fields` / `optional` | | from `Steps` |
+| `id` | `S: StepDefinition` | required |
+| `title` | `Option<&'static str>` | `None` — falls back to `id.title()` |
+| `fields` | `Option<Vec<Field>>` | `None` |
 | `when` | `Option<ReadSignal<bool>>` | `None` |
-| `children` | `Children` | required |
+| `children` | `Element` | required |
 
 ### `StepNav`
 
@@ -1308,18 +1362,18 @@ StepProgress { variant: StepProgressVariant::Dots }
 
 ### `SummarySection` / `SummaryField` / `ClearDraftButton` / `StepSuccess`
 
-`SummaryField`: `label`, `name`, `transform`. `ClearDraftButton`: `label`, `class`, `on_clear`.
+`SummaryField`: `label`, `name`, `field` (`Option<Field>`), `transform`. `ClearDraftButton`: `label`, `class`, `on_clear`.
 
 ### `Stepper` (headless)
 
 ```rust
-use components::Stepper;
+use components::{Step, Stepper};
 
-view! {
-    <Stepper<MyStep>>
-        <Step id=MyStep::First>"…"</Step>
-        <Step id=MyStep::Second>"…"</Step>
-    </Stepper>
+rsx! {
+    Stepper::<MyStep> {
+        Step { id: MyStep::First, "…" }
+        Step { id: MyStep::Second, "…" }
+    }
 }
 ```
 
@@ -1382,7 +1436,7 @@ rsx! {
 
 ## FieldName & Field
 
-`FieldName` / `FieldPath` / `FieldArray` come from `#[derive(FormFields)]`. `Field` is the erased handle passed to form components.
+`FieldName` (scalars) and `FieldArray` (`Vec` / `Option<Vec>`) consts come from `#[derive(FormFields)]`. `FieldPath` is built at runtime via `.dot()` / `.at()` / `From`. `Field` is the erased handle passed to form components.
 
 ```rust
 use components::{Field, FieldArray, FieldName, FieldPath, FormFields};
@@ -1403,7 +1457,7 @@ User::name;
 |-------|--------|
 | `FormFields` | `FieldName` / `FieldArray` on struct |
 | `FormOptions` | `OPTIONS` for `Select` / `RadioGroup` |
-| `Steps` | `StepDef` for step enums |
+| `Steps` | `ALL` / `COUNT` / `TITLES` / `DESCRIPTIONS` consts on step enums (`StepDefinition` / `StepMeta` impls stay manual) |
 
 ```rust
 use components::{FormFields, FormOptions};
@@ -1439,7 +1493,7 @@ view! {
 
 | Prop | Type | Default |
 |------|------|---------|
-| `when` | `Signal<bool>` | required |
+| `when` | `ReadSignal<bool>` | required |
 | `message` | `&'static str` | `"Processing…"` |
 
 ```rust
@@ -1459,9 +1513,9 @@ Renders the four standard states of a `use_resource` result in one place: loadin
 
 | Prop | Type | Default |
 |------|------|---------|
-| `resource` | `Resource<Result<T, AppError>>` | required |
+| `resource` | `Resource<Result<T, DsError>>` | required |
 | `skeleton` | `Element` | required — shown while loading |
-| `error` | `Callback<AppError, Element>` | required |
+| `error` | `Callback<DsError, Element>` | required |
 | `empty` | `Element` | required — shown when `is_empty` is true |
 | `is_empty` | `Callback<T, bool>` | required |
 | `view` | `Callback<T, Element>` | required — loaded, non-empty value |
@@ -1578,6 +1632,7 @@ Standalone controlled toggle. Caller owns state via `checked` + `on_change`.
 |------|------|---------|
 | `checked` | `bool` | required |
 | `on_change` | `Option<EventHandler<bool>>` | `None` |
+| `on_toggle` | `Option<EventHandler<bool>>` | `None` — alias of `on_change` |
 | `disabled` | `bool` | `false` |
 | `loading` | `bool` | `false` |
 | `checked_children` | `Option<Element>` | `None` |
@@ -1695,7 +1750,7 @@ rsx! {
 | `on_click` | `EventHandler<()>` | required |
 | `class` | `String` | `""` |
 | `aria_label` | `Option<String>` | `None` |
-| `children` | `Children` | required |
+| `children` | `Element` | required |
 
 ```rust
 use components::ChipToggle;
@@ -1721,7 +1776,7 @@ rsx! {
 | `description` | `Option<&'static str>` | `None` |
 | `icon` | `Option<IconName>` | `None` |
 | `class` | `String` | `""` |
-| `children` | `Option<Children>` | `None` |
+| `children` | `Option<Element>` | `None` |
 
 ```rust
 use components::{Button, EmptyState, IconName};
@@ -2160,6 +2215,178 @@ rsx! {
 
 ---
 
+## Modal
+
+| Prop | Type | Default |
+|------|------|---------|
+| `title` | `String` | optional |
+| `on_close` | `EventHandler<()>` | required |
+| `headerless` | `bool` | `false` |
+| `size` | `ModalSize` | `Md` |
+| `class` | `String` | `""` |
+| `attributes` | `Vec<Attribute>` (`extends = GlobalAttributes`) | `[]` |
+| `children` | `Element` | required |
+
+`ModalSize`: `Sm`, `Md`, `Lg`, `Xl`, `Xxl`, `Full`.
+
+```rust
+use components::{Modal, ModalSize};
+
+rsx! {
+    if show_modal() {
+        Modal { title: "Confirm", size: ModalSize::Sm, on_close: move |_| show_modal.set(false),
+            "Are you sure?"
+        }
+    }
+}
+```
+
+---
+
+## Slider
+
+| Prop | Type | Default |
+|------|------|---------|
+| `label` | `String` | required |
+| `value` | `f32` | required |
+| `min` | `f32` | required |
+| `max` | `f32` | required |
+| `step` | `f32` | `1.0` |
+| `unit` | `Option<String>` | `None` |
+| `on_change` | `EventHandler<f32>` | required |
+
+```rust
+use components::Slider;
+
+rsx! {
+    Slider { label: "Opacity", value: opacity(), min: 0.0, max: 100.0, unit: "%", on_change: move |v| opacity.set(v) }
+}
+```
+
+---
+
+## Progress
+
+| Prop | Type | Default |
+|------|------|---------|
+| `value` | `f32` | required — clamped to `0.0..=1.0` |
+| `class` | `String` | `""` |
+
+```rust
+use components::Progress;
+
+rsx! {
+    Progress { value: 0.4 }
+}
+```
+
+---
+
+## NumberStepper
+
+| Prop | Type | Default |
+|------|------|---------|
+| `value` | `Signal<i64>` | required |
+| `step` | `i64` | `1` |
+| `min` | `i64` | `i64::MIN` |
+| `max` | `i64` | `i64::MAX` |
+| `class` | `String` | `""` |
+
+```rust
+use components::NumberStepper;
+
+let qty = use_signal(|| 1i64);
+rsx! {
+    NumberStepper { value: qty, min: 1, max: 10 }
+}
+```
+
+---
+
+## StatTile
+
+| Prop | Type | Default |
+|------|------|---------|
+| `label` | `impl Into<String>` | required |
+| `value` | `impl Into<String>` | required |
+| `sub` | `Option<String>` | `None` |
+| `tone` | `StatTone` | `Default` |
+| `class` | `String` | `""` |
+
+`StatTone`: `Default`, `Success`, `Destructive`.
+
+```rust
+use components::{StatTile, StatTone};
+
+rsx! {
+    StatTile { label: "Revenue", value: "$12.4k", sub: "last 30 days", tone: StatTone::Success }
+}
+```
+
+---
+
+## StatusDot
+
+| Prop | Type | Default |
+|------|------|---------|
+| `tone` | `DotTone` | `Success` |
+| `pulse` | `bool` | `false` |
+| `size_px` | `u32` | `8` |
+| `class` | `String` | `""` |
+
+`DotTone`: `Success`, `Primary`, `Warning`, `Destructive`, `Muted`, `None`.
+
+```rust
+use components::{DotTone, StatusDot};
+
+rsx! {
+    StatusDot { tone: DotTone::Warning, pulse: true }
+}
+```
+
+---
+
+## StepDots
+
+Minimal step-position indicator driven by a `StepMeta` enum (implement `StepMeta` on the enum; `#[derive(Steps)]` supplies the `ALL`/`COUNT`/`TITLES`/`DESCRIPTIONS` consts it needs).
+
+| Prop | Type | Default |
+|------|------|---------|
+| `current` | `S: StepMeta` | required |
+| `failed` | `bool` | `false` |
+| `class` | `String` | `""` |
+
+```rust
+use components::StepDots;
+
+rsx! {
+    StepDots { current: MyStep::Review }
+}
+```
+
+---
+
+## Portal
+
+Renders `children` into another DOM node (default: `main`).
+
+| Prop | Type | Default |
+|------|------|---------|
+| `container` | `String` | `"main"` — CSS selector of the target node |
+| `class` | `Option<String>` | `None` |
+| `id` | `Option<String>` | `None` |
+| `children` | `Element` | required |
+
+```rust
+use components::Portal;
+
+rsx! {
+    Portal { container: "body", div { "floating content" } }
+}
+```
+
+---
+
 ## Further exports
 
-`Modal`, `Popover`, `PopoverConfirm`, `Placement`, `Icon`, `IconName`, `InputBase`, `CheckboxBase`, `A`, `FetchFn`, `RenderFn`, stepper internals, and `#[doc(hidden)]` `serde_json` re-export — see [`src/lib.rs`](src/lib.rs).
+`Placement` / `Align`, `Icon`, `IconName`, `InputBase`, `CheckboxBase`, `FetchFn`, `RenderFn`, `use_escape_listener`, `use_outside_dismiss`, `active_element_id`, `sliding_indicator_class` (+ `SlidingIndicatorAxis`, `HORIZONTAL_SLIDING_INDICATOR_CLASS` / `VERTICAL_SLIDING_INDICATOR_CLASS`), stepper internals, and `#[doc(hidden)]` `serde_json` re-export — see [`src/lib.rs`](src/lib.rs).

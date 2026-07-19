@@ -1298,8 +1298,13 @@ enum MyStep {
 
 | Prop | Type | Default |
 |------|------|---------|
-| `variant` | `StepProgressVariant` | `Horizontal` |
+| `variant` | `StepProgressVariant` (`Counter` \| `Horizontal` \| `Vertical` \| `Dots`) | `Horizontal` |
 | `class` | `String` | `""` |
+
+```rust
+// Minimal dots (mobile wizards): active step is a wide pill
+StepProgress { variant: StepProgressVariant::Dots }
+```
 
 ### `SummarySection` / `SummaryField` / `ClearDraftButton` / `StepSuccess`
 

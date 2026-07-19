@@ -603,6 +603,9 @@ pub enum StepProgressVariant {
     #[default]
     Horizontal,
     Vertical,
+    /// Minimal dot row (bulk-print style): active step is a wide primary pill,
+    /// the rest are small muted dots. No numbers, no labels.
+    Dots,
 }
 
 #[component]
@@ -779,6 +782,38 @@ pub fn StepProgress(
                                             "{title}"
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        StepProgressVariant::Dots => {
+            let container_class = merge(&["flex items-center justify-center gap-1.5", &class]);
+            let len = steps_list().len();
+            rsx! {
+                nav {
+                    "data-name": "StepProgress",
+                    class: "{container_class}",
+                    hidden: if *ctx.completed.read() { true },
+                    role: "list",
+                    "aria-label": "Progress",
+                    "data-current-step": "{current_step_str()}",
+                    for i in 0..len {
+                        {
+                            let is_current = ctx.step_state(i) == StepState::Current;
+                            let dot_class = if is_current {
+                                "h-1.5 w-6 rounded-full bg-primary transition-all duration-300"
+                            } else {
+                                "h-1.5 w-1.5 rounded-full bg-muted transition-all duration-300"
+                            };
+                            rsx! {
+                                div {
+                                    key: "{i}",
+                                    role: "listitem",
+                                    "aria-current": if is_current { "step" },
+                                    class: dot_class,
                                 }
                             }
                         }

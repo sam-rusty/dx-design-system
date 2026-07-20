@@ -639,6 +639,26 @@ All six share one props shape (`TypedInputProps`): `field` (required, `impl Into
 commit. `PasswordInput` includes a reveal (eye) toggle. Formatting/parsing behavior lives in the
 corresponding typed base, so it is identical standalone and in forms.
 
+### `MoneyInput`
+
+Form-bound money input: the form value is a minor-unit integer string (binds an `i64` wire
+field), the user types major units (`"25.5"` ↔ stored `"2550"`).
+
+| Prop | Type | Default |
+|------|------|---------|
+| `field` | `impl Into<Field>` | required |
+| `decimals` | `u32` | required — minor-unit exponent (2 → cents, 0 → zero-decimal) |
+| `size` | `FieldSize` | `FieldSize::default()` |
+| `autofocus` | `bool` | `false` |
+| `tooltip` | `Option<Element>` | `None` |
+| `class` | `String` | `""` |
+
+```rust
+rsx! {
+    MoneyInput { field: PriceTierForm::amount, decimals: 2 }
+}
+```
+
 ### `PasswordStrength`
 
 Strength meter (3 segments + Weak/Good/Strong label) and a live minimum-length checklist for a

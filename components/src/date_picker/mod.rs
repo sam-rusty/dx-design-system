@@ -200,3 +200,11 @@ impl From<String> for DateTime {
         deserialize_datetime_wire(&s).unwrap_or_else(|| panic!("invalid datetime: {s}"))
     }
 }
+
+impl crate::field_name::FormSchema for DateTime {
+    const FIELD_TYPE: crate::field_name::FieldType = crate::field_name::FieldType::String;
+
+    fn json_schema() -> serde_json::Value {
+        serde_json::Value::String(String::new())
+    }
+}

@@ -1,10 +1,12 @@
 mod date;
+mod money;
 mod number;
 mod percent;
 mod phone;
 mod text;
 
 pub use date::*;
+pub use money::*;
 pub use number::*;
 pub use percent::*;
 pub use phone::*;

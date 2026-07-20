@@ -57,7 +57,8 @@ fn device_offset() -> time::UtcOffset {
 
 /// RFC3339 UTC string → device-local (date, hour, minute) for display.
 fn rfc3339_to_wall(s: &str, offset: time::UtcOffset) -> Option<(Date, u32, u32)> {
-    let odt = time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).ok()?;
+    let odt =
+        time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).ok()?;
     let local = odt.to_offset(offset);
     Some((local.date(), local.hour() as u32, local.minute() as u32))
 }

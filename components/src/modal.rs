@@ -30,7 +30,8 @@ pub fn Modal(
     #[props(default)] headerless: bool,
     /// Drop the default padded body wrapper — for edge-to-edge content that
     /// brings its own padding (e.g. the date pickers).
-    #[props(default)] unpadded: bool,
+    #[props(default)]
+    unpadded: bool,
     #[props(default)] size: ModalSize,
     #[props(default)] class: String,
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,

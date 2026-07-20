@@ -506,7 +506,7 @@ impl_form_schema_number!(
 );
 
 /// RFC3339 string form value — pairs with `DateTimePicker { utc: true }`.
-#[cfg(feature = "calendar")]
+#[cfg(any(feature = "form", feature = "calendar"))]
 impl FormSchema for time::OffsetDateTime {
     const FIELD_TYPE: FieldType = FieldType::String;
     fn json_schema() -> serde_json::Value {

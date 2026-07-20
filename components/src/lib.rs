@@ -72,12 +72,12 @@ pub mod calendar;
 pub mod charts;
 #[cfg(feature = "data-table")]
 pub mod data_table;
+#[cfg(feature = "date-picker")]
+pub(crate) mod date_picker;
 #[cfg(feature = "data-table")]
 pub(crate) mod list_view;
 #[cfg(feature = "data-table")]
 pub(crate) mod resource_view;
-#[cfg(feature = "date-picker")]
-pub(crate) mod date_picker;
 #[cfg(feature = "rich-text")]
 pub(crate) mod rich_text_editor;
 
@@ -226,14 +226,14 @@ pub use charts::{
 pub use data_table::{
     Col, ColRenderFn, DataTable, DataTableSkeleton, ItemKeyProp, SortDir, TableColumn, col,
 };
-#[cfg(feature = "data-table")]
-pub use list_view::{FetchFn, ListEmpty, ListPage, ListView, RenderFn};
-#[cfg(feature = "data-table")]
-pub use resource_view::ResourceView;
 #[cfg(feature = "date-picker")]
 pub use date_picker::{
     Date, DatePicker, DatePickerBase, DateRangePicker, DateTime, DateTimePicker, DateTimePickerBase,
 };
+#[cfg(feature = "data-table")]
+pub use list_view::{FetchFn, ListEmpty, ListPage, ListView, RenderFn};
+#[cfg(feature = "data-table")]
+pub use resource_view::ResourceView;
 #[cfg(feature = "rich-text")]
 pub use rich_text_editor::{RichTextEditor, RichTextEditorBase, rte_insert_text};
 

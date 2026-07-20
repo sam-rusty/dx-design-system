@@ -505,6 +505,15 @@ impl_form_schema_number!(
     i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64, isize, usize
 );
 
+/// RFC3339 string form value — pairs with `DateTimePicker { utc: true }`.
+#[cfg(feature = "calendar")]
+impl FormSchema for time::OffsetDateTime {
+    const FIELD_TYPE: FieldType = FieldType::String;
+    fn json_schema() -> serde_json::Value {
+        serde_json::Value::String(String::new())
+    }
+}
+
 impl<T: FormSchema> FormSchema for Option<T> {
     const FIELD_TYPE: FieldType = T::FIELD_TYPE;
     fn json_schema() -> serde_json::Value {

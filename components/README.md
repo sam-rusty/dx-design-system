@@ -991,7 +991,7 @@ Stored values: `DatePicker` → `YYYY-MM-DD`; `DateRangePicker` → JSON `["YYYY
 |-----------|--------|
 | `DatePicker` | `field` (`impl Into<Field>`), `class`, `min: Option<Date>`, `max: Option<Date>`, `disabled: ReadSignal<bool>`, `tooltip: Option<Element>` |
 | `DateRangePicker` | `field`, `class`, `min: Option<Date>`, `max: Option<Date>`, `disabled: ReadSignal<bool>`, `tooltip` |
-| `DateTimePicker` | `field`, `class`, `min: Option<DateTime>`, `max: Option<DateTime>`, `disabled: ReadSignal<bool>`, `tooltip` |
+| `DateTimePicker` | `field`, `class`, `min: Option<DateTime>`, `max: Option<DateTime>`, `disabled: ReadSignal<bool>`, `tooltip`, `utc: bool` (store RFC3339 UTC, display device-local wall time — for form fields typed `OffsetDateTime`) |
 | `DatePickerBase` | standalone (no form binding): `value: ReadSignal<Option<String>>` (`YYYY-MM-DD`; `Some` = controlled), `on_value_change: Callback<String>`, `class`, `disabled: ReadSignal<bool>`, `min`/`max: Option<Signal<Date>>`, `is_open: Option<Signal<bool>>` |
 
 Use `DatePickerBase` when you need a controlled date picker outside a `FormProvider` (drive it with your own `value`/`on_value_change`); the `field`-bound `DatePicker` is preferred inside forms. `DateTimePickerBase` follows the same shape (there is no exported `DateRangePickerBase`). `min` and `max` accept the typed values `components::Date` / `components::DateTime` (`Date` for `DatePicker`/`DateRangePicker`; `DateTime` for `DateTimePicker`). Dates outside the range are rendered disabled in the calendar and rejected in text-input mode. `Date::default()` / `DateTime::default()` return today / today-at-midnight and are convenient for "no past" or "no future" constraints.

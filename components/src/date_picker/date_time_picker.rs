@@ -51,6 +51,46 @@ fn format_wire_datetime(date: Date, hour: u32, minute: u32) -> String {
     WireDateTime::from(PrimitiveDateTime::new(date, t)).to_string()
 }
 
+fn device_offset() -> time::UtcOffset {
+    time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC)
+}
+
+/// RFC3339 UTC string → device-local (date, hour, minute) for display.
+fn rfc3339_to_wall(s: &str, offset: time::UtcOffset) -> Option<(Date, u32, u32)> {
+    let odt = time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339).ok()?;
+    let local = odt.to_offset(offset);
+    Some((local.date(), local.hour() as u32, local.minute() as u32))
+}
+
+/// Picked wall time → RFC3339 UTC string for the form store / wire.
+fn wall_to_utc_rfc3339(date: Date, hour: u32, minute: u32, offset: time::UtcOffset) -> String {
+    let t = Time::from_hms(hour as u8, minute as u8, 0).unwrap_or(Time::MIDNIGHT);
+    let utc = PrimitiveDateTime::new(date, t)
+        .assume_offset(offset)
+        .to_offset(time::UtcOffset::UTC);
+    utc.format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default()
+}
+
+/// Stored form value → picker (date, hour, minute): RFC3339 UTC shifted to
+/// device-local wall time in `utc` mode, wall-time wire string otherwise.
+fn parse_value(s: &str, utc: bool) -> Option<(Date, u32, u32)> {
+    if utc {
+        rfc3339_to_wall(s, device_offset())
+    } else {
+        parse_datetime(s)
+    }
+}
+
+/// Picked wall time → stored form value (RFC3339 UTC in `utc` mode).
+fn commit_value(date: Date, hour: u32, minute: u32, utc: bool) -> String {
+    if utc {
+        wall_to_utc_rfc3339(date, hour, minute, device_offset())
+    } else {
+        format_wire_datetime(date, hour, minute)
+    }
+}
+
 fn format_display_datetime(date: &Date, hour: u32, minute: u32) -> String {
     let (h12, is_pm) = hour_24_to_12(hour);
     let period = if is_pm { "PM" } else { "AM" };
@@ -78,6 +118,9 @@ pub fn DateTimePickerBase(
     #[props(default)] min: Option<Signal<WireDateTime>>,
     #[props(default)] max: Option<Signal<WireDateTime>>,
     #[props(default)] is_open: Option<Signal<bool>>,
+    /// Store RFC3339 UTC, display device-local wall time.
+    #[props(default)]
+    utc: bool,
 ) -> Element {
     let default_is_open = use_signal(|| false);
     let mut is_open_sig = is_open.unwrap_or(default_is_open);
@@ -89,7 +132,7 @@ pub fn DateTimePickerBase(
 
     let current_value = use_memo(move || value().unwrap_or_default());
 
-    let parsed = use_memo(move || parse_datetime(&current_value()));
+    let parsed = use_memo(move || parse_value(&current_value(), utc));
 
     let initial_date = (*parsed.peek()).map(|(d, _, _)| d).unwrap_or_else(today);
     let cal_state = CalendarState::new(initial_date);
@@ -122,7 +165,7 @@ pub fn DateTimePickerBase(
         if val.is_empty() {
             String::new()
         } else {
-            parse_datetime(&val)
+            parse_value(&val, utc)
                 .map(|(d, h, m)| format_display_datetime(&d, h, m))
                 .unwrap_or(val)
         }
@@ -251,7 +294,7 @@ pub fn DateTimePickerBase(
                                             if let Some(date) = *staging_date.peek() {
                                                 let h = *staging_hour.peek();
                                                 let m = *staging_minute.peek();
-                                                let formatted = format_wire_datetime(date, h, m);
+                                                let formatted = commit_value(date, h, m, utc);
                                                 on_value_change.call(formatted);
                                             }
                                             is_open_sig.set(false);
@@ -375,6 +418,10 @@ pub struct DateTimePickerProps {
     /// Help tooltip rendered inline after the label.
     #[props(default)]
     pub tooltip: Option<Element>,
+    /// Store RFC3339 UTC, display device-local wall time — for form fields
+    /// typed `OffsetDateTime`.
+    #[props(default)]
+    pub utc: bool,
 }
 
 /// Form-bound date-time picker with stacked label and inline error.
@@ -390,6 +437,7 @@ pub fn DateTimePicker(props: DateTimePickerProps) -> Element {
                 max: props.max,
                 disabled: props.disabled,
                 open,
+                utc: props.utc,
             }
         }
     }
@@ -401,6 +449,7 @@ fn DateTimePickerControl(
     #[props(default)] max: Option<WireDateTime>,
     #[props(default)] disabled: ReadSignal<bool>,
     open: Signal<bool>,
+    #[props(default)] utc: bool,
 ) -> Element {
     let binding = use_field_binding();
     let form_disabled = binding.disabled;
@@ -421,6 +470,7 @@ fn DateTimePickerControl(
             is_open: open,
             min: min_opt,
             max: max_opt,
+            utc,
         }
     }
 }
@@ -433,6 +483,32 @@ mod tests {
 
     fn date(y: i32, m: u8, d: u8) -> Date {
         Date::from_calendar_date(y, time::Month::try_from(m).unwrap(), d).unwrap()
+    }
+
+    #[test]
+    fn utc_value_round_trips_through_wall_time() {
+        let offset = time::UtcOffset::from_hms(5, 0, 0).unwrap();
+        // Stored UTC 04:30 displays as 09:30 wall time at +05:00.
+        let (d, h, m) = rfc3339_to_wall("2026-07-19T04:30:00Z", offset).unwrap();
+        assert_eq!((d, h, m), (date(2026, 7, 19), 9, 30));
+        // Committing that wall time re-produces the same UTC instant.
+        assert_eq!(wall_to_utc_rfc3339(d, h, m, offset), "2026-07-19T04:30:00Z");
+    }
+
+    #[test]
+    fn utc_commit_crosses_date_line() {
+        let offset = time::UtcOffset::from_hms(5, 0, 0).unwrap();
+        // Wall 02:00 on the 19th at +05:00 is 21:00 UTC on the 18th.
+        assert_eq!(
+            wall_to_utc_rfc3339(date(2026, 7, 19), 2, 0, offset),
+            "2026-07-18T21:00:00Z"
+        );
+    }
+
+    #[test]
+    fn rfc3339_to_wall_rejects_picker_wall_strings() {
+        let offset = time::UtcOffset::UTC;
+        assert!(rfc3339_to_wall("2026-07-19 09:30:00", offset).is_none());
     }
 
     #[test]

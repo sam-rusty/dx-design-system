@@ -157,6 +157,7 @@ pub fn DateRangePickerBase(
                 Modal {
                     on_close: move || is_open_sig.set(false),
                     headerless: true,
+                    unpadded: true,
                     size: ModalSize::Sm,
                     PickerHeader { title: "Select date range",
                         div { class: HEADER_DATE, "{header_text}" }

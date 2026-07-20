@@ -28,6 +28,9 @@ pub fn Modal(
     #[props(optional)] title: String,
     on_close: EventHandler<()>,
     #[props(default)] headerless: bool,
+    /// Drop the default padded body wrapper — for edge-to-edge content that
+    /// brings its own padding (e.g. the date pickers).
+    #[props(default)] unpadded: bool,
     #[props(default)] size: ModalSize,
     #[props(default)] class: String,
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
@@ -84,7 +87,11 @@ pub fn Modal(
                             }
                         }
                     }
-                    {children}
+                    if unpadded {
+                        {children}
+                    } else {
+                        div { class: "overflow-y-auto px-6 py-5", {children} }
+                    }
                 }
             }
         }

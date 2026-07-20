@@ -106,6 +106,7 @@ pub fn DatePickerBase(
                 Modal {
                     on_close: move || is_open_sig.set(false),
                     headerless: true,
+                    unpadded: true,
                     size: ModalSize::Sm,
                     PickerHeader { title: "Select date",
                         div { class: HEADER_DATE, "{header_date}" }

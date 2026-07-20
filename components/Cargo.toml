@@ -12,7 +12,7 @@ strum_macros = { workspace = true }
 time = { workspace = true, optional = true }
 validator = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
-web-sys = { workspace = true, features = ["Blob", "Clipboard", "DataTransfer", "Document", "DomRect", "DomTokenList", "DragEvent", "Element", "Event", "EventTarget", "File", "FileList", "FileReader", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "MediaQueryList", "Navigator", "Node", "NodeList", "Storage", "Window"] }
+web-sys = { workspace = true, features = ["Blob", "Clipboard", "Comment", "DataTransfer", "Document", "DomRect", "DomTokenList", "DragEvent", "Element", "Event", "EventTarget", "File", "FileList", "FileReader", "HtmlElement", "HtmlInputElement", "KeyboardEvent", "MediaQueryList", "Navigator", "Node", "NodeList", "Storage", "Window"] }
 
 ds-macros = { workspace = true }
 ds-utils = { workspace = true }

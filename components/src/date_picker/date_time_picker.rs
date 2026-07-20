@@ -179,6 +179,7 @@ pub fn DateTimePickerBase(
                 Modal {
                     on_close: move || is_open_sig.set(false),
                     headerless: true,
+                    unpadded: true,
                     size: ModalSize::Sm,
                     PickerHeader { title: header_title,
                         div { class: HEADER_DATE, "{header_date_display}" }

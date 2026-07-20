@@ -2249,12 +2249,13 @@ rsx! {
 | `title` | `String` | optional |
 | `on_close` | `EventHandler<()>` | required |
 | `headerless` | `bool` | `false` |
+| `unpadded` | `bool` | `false` |
 | `size` | `ModalSize` | `Md` |
 | `class` | `String` | `""` |
 | `attributes` | `Vec<Attribute>` (`extends = GlobalAttributes`) | `[]` |
 | `children` | `Element` | required |
 
-`ModalSize`: `Sm`, `Md`, `Lg`, `Xl`, `Xxl`, `Full`.
+`ModalSize`: `Sm`, `Md`, `Lg`, `Xl`, `Xxl`, `Full`. Children render inside a padded, scrollable body wrapper; `unpadded: true` drops it for edge-to-edge content.
 
 ```rust
 use components::{Modal, ModalSize};

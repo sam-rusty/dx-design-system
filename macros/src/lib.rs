@@ -54,7 +54,7 @@ pub fn derive_form_fields(input: TokenStream) -> TokenStream {
 
 /// Generates `const OPTIONS: &[(&str, &str)]` for unit enums. See `libs/macros/README.md` for usage.
 #[cfg(feature = "form-options")]
-#[proc_macro_derive(FormOptions)]
+#[proc_macro_derive(FormOptions, attributes(strum))]
 pub fn derive_form_options(input: TokenStream) -> TokenStream {
     form_options::derive_form_options(input)
 }

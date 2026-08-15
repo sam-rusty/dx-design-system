@@ -26,7 +26,7 @@ enum PickerStep {
     Time,
 }
 
-fn hour_24_to_12(h: u32) -> (u32, bool) {
+pub(crate) fn hour_24_to_12(h: u32) -> (u32, bool) {
     let is_pm = h >= 12;
     let h12 = match h {
         0 => 12,
@@ -36,7 +36,7 @@ fn hour_24_to_12(h: u32) -> (u32, bool) {
     (h12, is_pm)
 }
 
-fn hour_12_to_24(h12: u32, is_pm: bool) -> u32 {
+pub(crate) fn hour_12_to_24(h12: u32, is_pm: bool) -> u32 {
     match (h12, is_pm) {
         (12, false) => 0,
         (12, true) => 12,
@@ -51,7 +51,7 @@ fn format_wire_datetime(date: Date, hour: u32, minute: u32) -> String {
     WireDateTime::from(PrimitiveDateTime::new(date, t)).to_string()
 }
 
-fn device_offset() -> time::UtcOffset {
+pub(crate) fn device_offset() -> time::UtcOffset {
     time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC)
 }
 
@@ -75,7 +75,8 @@ fn wall_to_utc_rfc3339(date: Date, hour: u32, minute: u32, offset: time::UtcOffs
 
 /// Stored form value → picker (date, hour, minute): RFC3339 UTC shifted to
 /// device-local wall time in `utc` mode, wall-time wire string otherwise.
-fn parse_value(s: &str, utc: bool) -> Option<(Date, u32, u32)> {
+/// Shared with the wheel flavor (`wheel.rs`).
+pub(crate) fn parse_value(s: &str, utc: bool) -> Option<(Date, u32, u32)> {
     if utc {
         rfc3339_to_wall(s, device_offset())
     } else {
@@ -84,7 +85,8 @@ fn parse_value(s: &str, utc: bool) -> Option<(Date, u32, u32)> {
 }
 
 /// Picked wall time → stored form value (RFC3339 UTC in `utc` mode).
-fn commit_value(date: Date, hour: u32, minute: u32, utc: bool) -> String {
+/// Shared with the wheel flavor (`wheel.rs`).
+pub(crate) fn commit_value(date: Date, hour: u32, minute: u32, utc: bool) -> String {
     if utc {
         wall_to_utc_rfc3339(date, hour, minute, device_offset())
     } else {

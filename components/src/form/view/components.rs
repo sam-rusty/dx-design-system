@@ -637,10 +637,20 @@ pub struct BareTextInputProps {
 /// The caller styles it via `class` (the control renders `unstyled`), so it can
 /// sit inside a custom surface (an editable card cell, an inline row).
 pub fn BareTextInput(props: BareTextInputProps) -> Element {
+    bare_input(props, TypedKind::Text)
+}
+
+/// Chromeless numeric field — [`BareTextInput`]'s number-typed sibling
+/// (numeric keyboard, thousands-separated display, raw decimal form value).
+pub fn BareNumberInput(props: BareTextInputProps) -> Element {
+    bare_input(props, TypedKind::Number)
+}
+
+fn bare_input(props: BareTextInputProps, kind: TypedKind) -> Element {
     rsx! {
         FormField { field: props.field,
             BoundInput {
-                kind: TypedKind::Text,
+                kind,
                 class: props.class,
                 unstyled: true,
                 placeholder: props.placeholder,

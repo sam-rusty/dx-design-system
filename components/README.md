@@ -639,6 +639,30 @@ All six share one props shape (`TypedInputProps`): `field` (required, `impl Into
 commit. `PasswordInput` includes a reveal (eye) toggle. Formatting/parsing behavior lives in the
 corresponding typed base, so it is identical standalone and in forms.
 
+### `BareTextInput` / `BareNumberInput`
+
+Chromeless form-bound fields — no label, no border/background of their own; the caller supplies
+the complete style via `class` (the control renders `unstyled`). For custom surfaces: an editable
+card cell, an inline settings row, a big borderless sheet title. `BareNumberInput` is the
+number-typed sibling (numeric keyboard, thousands-separated display, raw decimal form value).
+
+| Prop | Type | Default |
+|------|------|---------|
+| `field` | `impl Into<Field>` | required |
+| `class` | `String` | `""` — full class list for the control |
+| `placeholder` | `String` | `""` |
+| `autofocus` | `bool` | `false` |
+
+```rust
+rsx! {
+    BareTextInput {
+        field: UpdateEventForm::title,
+        placeholder: "Event title",
+        class: "w-full bg-transparent text-[22px] font-bold outline-none",
+    }
+}
+```
+
 ### `MoneyInput`
 
 Form-bound money input: the form value is a minor-unit integer string (binds an `i64` wire
@@ -656,6 +680,29 @@ field), the user types major units (`"25.5"` ↔ stored `"2550"`).
 ```rust
 rsx! {
     MoneyInput { field: PriceTierForm::amount, decimals: 2 }
+}
+```
+
+### `BareMoneyInput`
+
+`MoneyInput`'s conversion (major-unit display, minor-unit form value) with no label/border
+chrome — the caller styles it via `class`, e.g. a headline amount in a sheet.
+
+| Prop | Type | Default |
+|------|------|---------|
+| `field` | `impl Into<Field>` | required |
+| `decimals` | `u32` | required |
+| `class` | `String` | `""` — full class list for the control |
+| `placeholder` | `Option<String>` | `None` |
+| `autofocus` | `bool` | `false` |
+
+```rust
+rsx! {
+    BareMoneyInput {
+        field: PriceTierForm::amount,
+        decimals: 2,
+        class: "w-full bg-transparent text-center text-[44px] font-extrabold outline-none",
+    }
 }
 ```
 
@@ -1010,6 +1057,36 @@ rsx! {
 
     // task due date — can't be in the past
     DateTimePicker { field: TaskForm::due_date, min: DateTime::default() }
+}
+```
+
+### `Wheel` / `WheelDeck` / `WheelDateTime`
+
+iOS-style wheel pickers: drag anywhere on a column to spin it, tap a visible row to jump.
+`Wheel` is one controlled column; `WheelDeck` wraps columns with the centered highlight band;
+`WheelDateTime` is the form-bound date-time flavor (date / hour / minute / AM-PM columns) that
+commits the same wire value as `DateTimePicker`, including its `utc` mode. It renders no
+label/error chrome of its own — meant to sit inside an inline expander row, not a stacked form.
+
+| Component | Props |
+|-----------|--------|
+| `Wheel` | `values: Vec<String>`, `index: usize`, `on_change: EventHandler<usize>`, `class` |
+| `WheelDeck` | `class`, `children` (the `Wheel` columns) |
+| `WheelDateTime` | `field` (`impl Into<Field>`), `utc: bool` (default `false`), `time: bool` (default `true` — `false` = date column only, commits preserve the stored time of day), `class` (merged onto the deck) |
+
+```rust
+rsx! {
+    // form-bound, inside a FormProvider
+    WheelDateTime { field: UpdateEventForm::starts_at, utc: true }
+
+    // controlled option wheel
+    WheelDeck {
+        Wheel {
+            values: vec!["USD".into(), "EUR".into()],
+            index: selected(),
+            on_change: move |i| selected.set(i),
+        }
+    }
 }
 ```
 

@@ -4,10 +4,12 @@ mod shared;
 mod date_range_picker;
 mod date_time_picker;
 mod single;
+mod wheel;
 
 pub use date_range_picker::DateRangePicker;
 pub use date_time_picker::{DateTimePicker, DateTimePickerBase};
 pub use single::{DatePicker, DatePickerBase};
+pub use wheel::{Wheel, WheelDateTime, WheelDeck};
 
 use serde::{Deserialize, Deserializer, Serialize};
 

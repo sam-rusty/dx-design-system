@@ -10,7 +10,9 @@ use crate::form::{FieldContext, FormContext};
 
 /// Controlled-prop bundle adapting the surrounding form to any base component:
 /// reactive value / invalid / disabled reads plus write-back callbacks.
-pub(crate) struct FieldBinding {
+/// Public so apps can build custom form-bound controls: call
+/// [`use_field_binding`] under a `FormField` and wire the bundle to any base.
+pub struct FieldBinding {
     /// The field name (map key into the form's value store).
     pub name: Arc<str>,
     /// DOM id for the control (the field name), targeted by labels.
@@ -40,7 +42,7 @@ impl FieldBinding {
     }
 }
 
-pub(crate) fn use_field_binding() -> FieldBinding {
+pub fn use_field_binding() -> FieldBinding {
     // Typed form store: `typed::FormField` provides a `Signal<BoundField>` in
     // context; adapt it to the same string-shaped binding. The branch is
     // stable for a control instance's lifetime (it mounts under one form

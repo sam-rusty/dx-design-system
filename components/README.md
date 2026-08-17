@@ -639,12 +639,11 @@ All six share one props shape (`TypedInputProps`): `field` (required, `impl Into
 commit. `PasswordInput` includes a reveal (eye) toggle. Formatting/parsing behavior lives in the
 corresponding typed base, so it is identical standalone and in forms.
 
-### `BareTextInput` / `BareNumberInput`
+### `BareTextInput`
 
-Chromeless form-bound fields — no label, no border/background of their own; the caller supplies
+Chromeless form-bound text field — no label, no border/background of its own; the caller supplies
 the complete style via `class` (the control renders `unstyled`). For custom surfaces: an editable
-card cell, an inline settings row, a big borderless sheet title. `BareNumberInput` is the
-number-typed sibling (numeric keyboard, thousands-separated display, raw decimal form value).
+card cell, an inline settings row, a big borderless sheet title.
 
 | Prop | Type | Default |
 |------|------|---------|
@@ -663,6 +662,22 @@ rsx! {
 }
 ```
 
+### Custom form-bound controls: `FormField` + `use_field_binding`
+
+Apps can build their own form-bound controls on the same plumbing the built-ins use: mount
+`FormField { field }` (provides the field context, renders the error slot) and call
+`use_field_binding()` inside it. The returned `FieldBinding` bundles the reactive reads
+(`value`, `controlled_value`, `invalid`, `disabled`) and write-backs (`on_value_change`,
+`on_commit`, `touch`), plus `id` / `aria_describedby` / `aria_invalid()` for the control's
+accessibility wiring. Feed those to any base (`TextInputBase`, `NumberInputBase`, …) or a fully
+custom widget.
+
+For custom date-time controls, `parse_datetime_value(s, utc)` / `commit_datetime_value(date,
+hour, minute, utc)` convert between the stored wire value and wall-clock parts exactly as
+`DateTimePicker` does (including its RFC3339-UTC `utc` mode), and `hour_24_to_12` /
+`hour_12_to_24` handle the 12-hour clock. For money, `format::major_to_minor` /
+`format::minor_to_major` are the `MoneyInput` conversions.
+
 ### `MoneyInput`
 
 Form-bound money input: the form value is a minor-unit integer string (binds an `i64` wire
@@ -680,29 +695,6 @@ field), the user types major units (`"25.5"` ↔ stored `"2550"`).
 ```rust
 rsx! {
     MoneyInput { field: PriceTierForm::amount, decimals: 2 }
-}
-```
-
-### `BareMoneyInput`
-
-`MoneyInput`'s conversion (major-unit display, minor-unit form value) with no label/border
-chrome — the caller styles it via `class`, e.g. a headline amount in a sheet.
-
-| Prop | Type | Default |
-|------|------|---------|
-| `field` | `impl Into<Field>` | required |
-| `decimals` | `u32` | required |
-| `class` | `String` | `""` — full class list for the control |
-| `placeholder` | `Option<String>` | `None` |
-| `autofocus` | `bool` | `false` |
-
-```rust
-rsx! {
-    BareMoneyInput {
-        field: PriceTierForm::amount,
-        decimals: 2,
-        class: "w-full bg-transparent text-center text-[44px] font-extrabold outline-none",
-    }
 }
 ```
 
@@ -1057,36 +1049,6 @@ rsx! {
 
     // task due date — can't be in the past
     DateTimePicker { field: TaskForm::due_date, min: DateTime::default() }
-}
-```
-
-### `Wheel` / `WheelDeck` / `WheelDateTime`
-
-iOS-style wheel pickers: drag anywhere on a column to spin it, tap a visible row to jump.
-`Wheel` is one controlled column; `WheelDeck` wraps columns with the centered highlight band;
-`WheelDateTime` is the form-bound date-time flavor (date / hour / minute / AM-PM columns) that
-commits the same wire value as `DateTimePicker`, including its `utc` mode. It renders no
-label/error chrome of its own — meant to sit inside an inline expander row, not a stacked form.
-
-| Component | Props |
-|-----------|--------|
-| `Wheel` | `values: Vec<String>`, `index: usize`, `on_change: EventHandler<usize>`, `class` |
-| `WheelDeck` | `class`, `children` (the `Wheel` columns) |
-| `WheelDateTime` | `field` (`impl Into<Field>`), `utc: bool` (default `false`), `time: bool` (default `true` — `false` = date column only, commits preserve the stored time of day), `class` (merged onto the deck) |
-
-```rust
-rsx! {
-    // form-bound, inside a FormProvider
-    WheelDateTime { field: UpdateEventForm::starts_at, utc: true }
-
-    // controlled option wheel
-    WheelDeck {
-        Wheel {
-            values: vec!["USD".into(), "EUR".into()],
-            index: selected(),
-            on_change: move |i| selected.set(i),
-        }
-    }
 }
 ```
 

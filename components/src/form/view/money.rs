@@ -10,7 +10,7 @@ use crate::input::FieldSize;
 use crate::input_types::{NumberInputBase, TypedInputBaseProps};
 
 use super::binding::use_field_binding;
-use super::components::{FormField, FormFieldFrame};
+use super::components::FormFieldFrame;
 
 /// Props for [`MoneyInput`], the form-bound money input.
 #[derive(Props, Clone, PartialEq)]
@@ -50,51 +50,11 @@ pub fn MoneyInput(props: MoneyInputProps) -> Element {
     }
 }
 
-/// Props for [`BareMoneyInput`].
-#[derive(Props, Clone, PartialEq)]
-pub struct BareMoneyInputProps {
-    /// The bound form field (stores minor units).
-    #[props(into)]
-    pub field: Field,
-    /// Minor-unit exponent of the currency (2 → cents, 0 → zero-decimal).
-    pub decimals: u32,
-    /// Full class list for the chromeless control.
-    #[props(default)]
-    pub class: String,
-    /// Placeholder text.
-    #[props(default)]
-    pub placeholder: Option<String>,
-    /// Autofocus on mount.
-    #[props(default)]
-    pub autofocus: bool,
-}
-
-/// Chromeless money field — [`MoneyInput`]'s conversion (major-unit display,
-/// minor-unit form value) with no label/border chrome; the caller styles it
-/// via `class` (e.g. a headline amount in a sheet).
-pub fn BareMoneyInput(props: BareMoneyInputProps) -> Element {
-    rsx! {
-        FormField { field: props.field,
-            MoneyControl {
-                decimals: props.decimals,
-                autofocus: props.autofocus,
-                class: props.class,
-                placeholder: props.placeholder,
-            }
-        }
-    }
-}
-
 #[component]
 fn MoneyControl(
     decimals: u32,
     #[props(default)] size: FieldSize,
     #[props(default)] autofocus: bool,
-    /// Complete class override for the chromeless flavor; `None` = the
-    /// standard form-control style.
-    #[props(default)]
-    class: Option<String>,
-    #[props(default)] placeholder: Option<String>,
 ) -> Element {
     let binding = use_field_binding();
 
@@ -129,8 +89,8 @@ fn MoneyControl(
         on_key_down: Callback::default(),
         disabled: binding.disabled.into(),
         size,
-        class: class.unwrap_or_else(|| size.form_control_merge(false)),
-        placeholder,
+        class: size.form_control_merge(false),
+        placeholder: None,
         id: Some(binding.id.clone()),
         autofocus,
         unstyled: true,

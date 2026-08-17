@@ -26,7 +26,8 @@ enum PickerStep {
     Time,
 }
 
-pub(crate) fn hour_24_to_12(h: u32) -> (u32, bool) {
+/// 24h clock hour → (12h hour, is_pm).
+pub fn hour_24_to_12(h: u32) -> (u32, bool) {
     let is_pm = h >= 12;
     let h12 = match h {
         0 => 12,
@@ -36,7 +37,8 @@ pub(crate) fn hour_24_to_12(h: u32) -> (u32, bool) {
     (h12, is_pm)
 }
 
-pub(crate) fn hour_12_to_24(h12: u32, is_pm: bool) -> u32 {
+/// (12h hour, is_pm) → 24h clock hour.
+pub fn hour_12_to_24(h12: u32, is_pm: bool) -> u32 {
     match (h12, is_pm) {
         (12, false) => 0,
         (12, true) => 12,
@@ -51,7 +53,7 @@ fn format_wire_datetime(date: Date, hour: u32, minute: u32) -> String {
     WireDateTime::from(PrimitiveDateTime::new(date, t)).to_string()
 }
 
-pub(crate) fn device_offset() -> time::UtcOffset {
+fn device_offset() -> time::UtcOffset {
     time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC)
 }
 
@@ -73,10 +75,10 @@ fn wall_to_utc_rfc3339(date: Date, hour: u32, minute: u32, offset: time::UtcOffs
         .unwrap_or_default()
 }
 
-/// Stored form value → picker (date, hour, minute): RFC3339 UTC shifted to
+/// Stored form value → wall (date, hour, minute): RFC3339 UTC shifted to
 /// device-local wall time in `utc` mode, wall-time wire string otherwise.
-/// Shared with the wheel flavor (`wheel.rs`).
-pub(crate) fn parse_value(s: &str, utc: bool) -> Option<(Date, u32, u32)> {
+/// Public so custom pickers can bind the same wire value as `DateTimePicker`.
+pub fn parse_datetime_value(s: &str, utc: bool) -> Option<(Date, u32, u32)> {
     if utc {
         rfc3339_to_wall(s, device_offset())
     } else {
@@ -85,8 +87,8 @@ pub(crate) fn parse_value(s: &str, utc: bool) -> Option<(Date, u32, u32)> {
 }
 
 /// Picked wall time → stored form value (RFC3339 UTC in `utc` mode).
-/// Shared with the wheel flavor (`wheel.rs`).
-pub(crate) fn commit_value(date: Date, hour: u32, minute: u32, utc: bool) -> String {
+/// Public counterpart of [`parse_datetime_value`].
+pub fn commit_datetime_value(date: Date, hour: u32, minute: u32, utc: bool) -> String {
     if utc {
         wall_to_utc_rfc3339(date, hour, minute, device_offset())
     } else {
@@ -135,7 +137,7 @@ pub fn DateTimePickerBase(
 
     let current_value = use_memo(move || value().unwrap_or_default());
 
-    let parsed = use_memo(move || parse_value(&current_value(), utc));
+    let parsed = use_memo(move || parse_datetime_value(&current_value(), utc));
 
     let initial_date = (*parsed.peek()).map(|(d, _, _)| d).unwrap_or_else(today);
     let cal_state = CalendarState::new(initial_date);
@@ -168,7 +170,7 @@ pub fn DateTimePickerBase(
         if val.is_empty() {
             String::new()
         } else {
-            parse_value(&val, utc)
+            parse_datetime_value(&val, utc)
                 .map(|(d, h, m)| format_display_datetime(&d, h, m))
                 .unwrap_or(val)
         }
@@ -297,7 +299,7 @@ pub fn DateTimePickerBase(
                                             if let Some(date) = *staging_date.peek() {
                                                 let h = *staging_hour.peek();
                                                 let m = *staging_minute.peek();
-                                                let formatted = commit_value(date, h, m, utc);
+                                                let formatted = commit_datetime_value(date, h, m, utc);
                                                 on_value_change.call(formatted);
                                             }
                                             is_open_sig.set(false);

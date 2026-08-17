@@ -168,8 +168,8 @@ pub use ds_macros::{FormFields, FormOptions, Steps};
 pub use file_upload::{FileInfo, FileUpload};
 #[cfg(feature = "form")]
 pub use form::{
-    BareMoneyInput, BareNumberInput, BareTextInput, Form, FormData, FormProvider, FormSubmit,
-    MoneyInput, NumberInput, PasswordInput, TextInput, use_form,
+    BareTextInput, FieldBinding, Form, FormData, FormField, FormProvider, FormSubmit, MoneyInput,
+    NumberInput, PasswordInput, TextInput, use_field_binding, use_form,
 };
 // Root exports for the typed form store; the derive macros reference these
 // paths (`components::FormValue`).
@@ -229,7 +229,7 @@ pub use data_table::{
 #[cfg(feature = "date-picker")]
 pub use date_picker::{
     Date, DatePicker, DatePickerBase, DateRangePicker, DateTime, DateTimePicker,
-    DateTimePickerBase, Wheel, WheelDateTime, WheelDeck,
+    DateTimePickerBase, commit_datetime_value, hour_12_to_24, hour_24_to_12, parse_datetime_value,
 };
 #[cfg(feature = "data-table")]
 pub use list_view::{FetchFn, ListEmpty, ListPage, ListView, RenderFn};

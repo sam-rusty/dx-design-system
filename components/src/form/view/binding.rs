@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 
-use crate::form::{FieldContext, FormContext};
+use crate::form::FieldContext;
+use crate::form::hook::FormContext;
 
 /// Controlled-prop bundle adapting the surrounding form to any base component:
 /// reactive value / invalid / disabled reads plus write-back callbacks.
@@ -66,10 +67,9 @@ pub fn use_field_binding() -> FieldBinding {
     let invalid = {
         let name = name.clone();
         use_memo(move || {
-            form_ctx.touched_signal.with(|t| t.contains(&*name))
-                && form_ctx
-                    .errors_signal
-                    .with(|e| e.get(&*name).is_some_and(|err| err.is_some()))
+            form_ctx
+                .aux
+                .with(|a| a.is_touched(&name) && a.error(&name).is_some())
         })
     };
     let disabled = use_memo(move || form_ctx.disabled.map(|d| d()).unwrap_or(false));

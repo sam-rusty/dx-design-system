@@ -9,7 +9,8 @@ use crate::calendar::{
     CalendarState, format_date, format_date_range, format_header_date, parse_date,
     parse_date_range, today,
 };
-use crate::form::{FormFieldFrame, use_field_binding};
+use crate::form::use_field_binding;
+use crate::form::view::FormFieldFrame;
 use crate::{Field, InputBase, Modal, ModalSize};
 
 const TAB_ACTIVE: &str = "flex-1 py-2 text-sm font-medium text-primary border-b-2 border-primary cursor-pointer text-center transition-colors";
@@ -317,7 +318,7 @@ pub fn DateRangePicker(props: DateRangePickerProps) -> Element {
 }
 
 #[component]
-fn DateRangePickerControl(
+pub(crate) fn DateRangePickerControl(
     #[props(default)] min: Option<WireDate>,
     #[props(default)] max: Option<WireDate>,
     #[props(default)] disabled: ReadSignal<bool>,

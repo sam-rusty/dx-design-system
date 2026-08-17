@@ -3,7 +3,8 @@ use ds_utils::format::merge;
 use strum_macros::AsRefStr;
 
 use crate::Field;
-use crate::form::{FormError, FormField, LabelHint, use_field_binding};
+use crate::form::use_field_binding;
+use crate::form::view::{FormError, FormField, LabelHint};
 use crate::hooks::{FocusState, use_focus_control, use_focus_entry_disabled, use_focus_provider};
 use crate::label::Label;
 

@@ -6,7 +6,8 @@ use time::{Date, PrimitiveDateTime, Time};
 use super::panel::{CalendarPanel, PickerFooter, SelectionState};
 use super::shared::*;
 use crate::calendar::{CalendarState, format_header_date, parse_datetime, today};
-use crate::form::{FormFieldFrame, use_field_binding};
+use crate::form::use_field_binding;
+use crate::form::view::FormFieldFrame;
 use crate::icon::{Icon, IconName};
 use crate::{Field, InputBase, Modal, ModalSize};
 
@@ -449,7 +450,7 @@ pub fn DateTimePicker(props: DateTimePickerProps) -> Element {
 }
 
 #[component]
-fn DateTimePickerControl(
+pub(crate) fn DateTimePickerControl(
     #[props(default)] min: Option<WireDateTime>,
     #[props(default)] max: Option<WireDateTime>,
     #[props(default)] disabled: ReadSignal<bool>,

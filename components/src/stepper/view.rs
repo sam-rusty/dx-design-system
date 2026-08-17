@@ -11,7 +11,7 @@ use super::state::{
     save_persisted_step, use_any_step_ctx,
 };
 use crate::field_name::Field;
-use crate::form::{Form, FormContext, FormData, FormProvider};
+use crate::form::dynamic::{DynamicForm, Form, FormContext, FormData, FormProvider};
 use crate::icon::{Icon, IconName};
 use crate::layout::{FlexGridCols, Grid};
 use crate::separator::Separator;
@@ -66,7 +66,7 @@ fn step_vlabel_class(state: StepState, clickable: bool) -> &'static str {
     }
 }
 
-fn validate_step_fields<T: FormData>(form: &Form<T>, fields: &[Field]) -> bool {
+fn validate_step_fields<T: FormData>(form: &DynamicForm<T>, fields: &[Field]) -> bool {
     if fields.is_empty() {
         return true;
     }
@@ -91,8 +91,7 @@ fn StepFormRegistryScope(registry: Signal<Vec<Field>>, children: Element) -> Ele
         .expect("StepFormRegistryScope: use inside FormProvider (e.g. MultiStepForm)");
     use_context_provider(|| FormContext {
         values_signal: parent.values_signal,
-        errors_signal: parent.errors_signal,
-        touched_signal: parent.touched_signal,
+        aux: parent.aux,
         set_value: parent.set_value,
         touch_field: parent.touch_field,
         disabled: parent.disabled,
@@ -342,7 +341,7 @@ pub fn StepSuccess(children: Element) -> Element {
 /// `on_step_change` stable for a given mount if you rely on predictable restore/persist behavior.
 #[component]
 pub fn MultiStepForm<T, S>(
-    form: Form<T>,
+    form: DynamicForm<T>,
     #[props(default)] initial: Option<S>,
     #[props(default)] on_step_change: Option<EventHandler<(usize, usize)>>,
     #[props(default)] disabled: Option<Signal<bool>>,
@@ -493,7 +492,7 @@ where
 
 #[component]
 pub fn StepNav<T>(
-    form: Form<T>,
+    form: DynamicForm<T>,
     on_submit: EventHandler<T>,
     #[props(default)] back_label: Option<String>,
     #[props(default)] next_label: Option<String>,

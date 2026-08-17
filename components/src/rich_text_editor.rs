@@ -7,7 +7,8 @@ on_web! {
 }
 
 use crate::field_name::Field;
-use crate::form::{FieldContext, FieldLabel, FormContext, FormError, FormField};
+use crate::form::dynamic::{FormContext, FormError, FormField};
+use crate::form::{FieldContext, FieldLabel};
 #[cfg(feature = "web")]
 use crate::icon::{Icon, IconName};
 #[cfg(feature = "web")]
@@ -593,10 +594,8 @@ pub(crate) fn RichTextEditorFormControl(
 
     let is_disabled = form_ctx.disabled.map(|d| d()).unwrap_or(false);
 
-    let is_touched = form_ctx.touched_signal.with(|t| t.contains(&*field_name));
-    let has_error = form_ctx
-        .errors_signal
-        .with(|e| e.get(&*field_name).is_some_and(|err| err.is_some()));
+    let is_touched = form_ctx.aux.with(|a| a.is_touched(&field_name));
+    let has_error = form_ctx.aux.with(|a| a.error(&field_name).is_some());
     let aria_invalid = if is_touched && has_error {
         Some("true".to_string())
     } else {

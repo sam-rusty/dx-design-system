@@ -8,8 +8,9 @@ use ds_components as components;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
-use components::form::typed::view::{Checkbox, Form, FormProvider, NumberInput, Select, TextInput};
-use components::form::typed::{LensExt, use_form};
+use components::form::{
+    Checkbox, Form, FormProvider, LensExt, NumberInput, Select, TextInput, use_form,
+};
 use components::{FormFields, FormOptions};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, FormOptions)]
@@ -52,10 +53,10 @@ fn app() -> Element {
     rsx! {
         FormProvider { form,
             Form {
-                TextInput { field: form.field(Profile::username) }
-                NumberInput { field: form.field(Profile::age) }
-                Checkbox { field: form.field(Profile::newsletter) }
-                Select { field: form.field(Profile::plan), options: Plan::OPTIONS }
+                TextInput { field: Profile::username }
+                NumberInput { field: Profile::age }
+                Checkbox { field: Profile::newsletter }
+                Select { field: Profile::plan, options: Plan::OPTIONS }
                 TextInput { field: form.field(Profile::address.then(Address::city)) }
             }
         }

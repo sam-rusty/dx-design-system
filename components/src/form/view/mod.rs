@@ -8,6 +8,7 @@ mod money;
 pub use self::components::*;
 pub use binding::{FieldBinding, use_field_binding};
 pub use layout::*;
+pub(crate) use money::MoneyControl;
 pub use money::MoneyInput;
 
 #[cfg(test)]

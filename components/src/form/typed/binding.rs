@@ -207,3 +207,147 @@ impl<F> PartialEq for FieldBinding<F> {
         self.erased == other.erased
     }
 }
+
+/// The `field:` prop type for typed controls: either an explicit binding
+/// (`form.field(MyForm::name)` / a `BoundField`), or a bare lens
+/// (`MyForm::name`) resolved lazily against the surrounding `FormProvider`'s
+/// store — `FormProvider` puts its `Form<T>` in context, and the control
+/// resolves in its own scope, below the provider.
+pub struct FieldHandle {
+    kind: HandleKind,
+}
+
+enum HandleKind {
+    Bound(BoundField),
+    Deferred {
+        /// `TypeId` of the form struct `T` + lens path: prop identity for
+        /// memoization (the binding itself is context-dependent).
+        root: std::any::TypeId,
+        path: String,
+        resolve: Rc<dyn Fn() -> Option<BoundField>>,
+    },
+}
+
+impl FieldHandle {
+    /// Resolve to the erased binding. Bare lenses read the surrounding form
+    /// store from context, so call this from a component mounted under the
+    /// matching `FormProvider`.
+    pub fn bind(&self) -> BoundField {
+        match &self.kind {
+            HandleKind::Bound(b) => b.clone(),
+            HandleKind::Deferred { resolve, path, .. } => {
+                let Some(bound) = resolve() else {
+                    panic!("field {path:?}: bare lens used outside its FormProvider");
+                };
+                bound
+            }
+        }
+    }
+}
+
+impl Clone for FieldHandle {
+    fn clone(&self) -> Self {
+        Self {
+            kind: match &self.kind {
+                HandleKind::Bound(b) => HandleKind::Bound(b.clone()),
+                HandleKind::Deferred {
+                    root,
+                    path,
+                    resolve,
+                } => HandleKind::Deferred {
+                    root: *root,
+                    path: path.clone(),
+                    resolve: resolve.clone(),
+                },
+            },
+        }
+    }
+}
+
+impl PartialEq for FieldHandle {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.kind, &other.kind) {
+            (HandleKind::Bound(a), HandleKind::Bound(b)) => a == b,
+            (
+                HandleKind::Deferred {
+                    root: ra, path: pa, ..
+                },
+                HandleKind::Deferred {
+                    root: rb, path: pb, ..
+                },
+            ) => ra == rb && pa == pb,
+            _ => false,
+        }
+    }
+}
+
+impl std::fmt::Debug for FieldHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.kind {
+            HandleKind::Bound(b) => f.debug_tuple("FieldHandle").field(&b.path).finish(),
+            HandleKind::Deferred { path, .. } => {
+                f.debug_tuple("FieldHandle::Deferred").field(path).finish()
+            }
+        }
+    }
+}
+
+impl From<BoundField> for FieldHandle {
+    fn from(bound: BoundField) -> Self {
+        Self {
+            kind: HandleKind::Bound(bound),
+        }
+    }
+}
+
+impl<F> From<FieldBinding<F>> for FieldHandle {
+    fn from(binding: FieldBinding<F>) -> Self {
+        Self {
+            kind: HandleKind::Bound(binding.erased),
+        }
+    }
+}
+
+/// Bare lenses (`MyForm::name`, `MyForm::items`) become deferred handles:
+/// the control resolves them against the `Form<T>` its `FormProvider` put in
+/// context. Composed lenses (`.then(...)`, `.nth(...)`) don't carry their
+/// root type in a nameable way — pass those as `form.field(lens)` instead.
+impl<T, F> From<crate::field_name::FieldName<T, F>> for FieldHandle
+where
+    T: super::form::TypedFormData,
+    F: super::value::FormValue,
+{
+    fn from(lens: crate::field_name::FieldName<T, F>) -> Self {
+        use super::lens::Lens;
+        Self {
+            kind: HandleKind::Deferred {
+                root: std::any::TypeId::of::<T>(),
+                path: lens.path(),
+                resolve: Rc::new(move || {
+                    dioxus::prelude::try_consume_context::<super::form::Form<T>>()
+                        .map(|form| form.field(lens).erased)
+                }),
+            },
+        }
+    }
+}
+
+impl<T, E> From<crate::field_name::FieldArray<T, E>> for FieldHandle
+where
+    T: super::form::TypedFormData,
+    E: Clone + 'static,
+{
+    fn from(lens: crate::field_name::FieldArray<T, E>) -> Self {
+        use super::lens::Lens;
+        Self {
+            kind: HandleKind::Deferred {
+                root: std::any::TypeId::of::<T>(),
+                path: lens.path(),
+                resolve: Rc::new(move || {
+                    dioxus::prelude::try_consume_context::<super::form::Form<T>>()
+                        .map(|form| form.field(lens).erased)
+                }),
+            },
+        }
+    }
+}

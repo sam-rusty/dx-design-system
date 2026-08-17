@@ -134,8 +134,8 @@ fn run_with_scope<R>(f: impl FnOnce() -> R) -> R {
     f()
 }
 
-fn make_form_with_values(values: Vec<(&str, &str)>) -> Form<MockUser> {
-    let mut form = Form::<MockUser>::default();
+fn make_form_with_values(values: Vec<(&str, &str)>) -> DynamicForm<MockUser> {
+    let mut form = DynamicForm::<MockUser>::default();
     for (k, v) in values {
         form.values_signal
             .write()
@@ -144,8 +144,8 @@ fn make_form_with_values(values: Vec<(&str, &str)>) -> Form<MockUser> {
     form
 }
 
-fn make_order_form_with_values(values: Vec<(&str, &str)>) -> Form<MockOrder> {
-    let mut form = Form::<MockOrder>::default();
+fn make_order_form_with_values(values: Vec<(&str, &str)>) -> DynamicForm<MockOrder> {
+    let mut form = DynamicForm::<MockOrder>::default();
     for (k, v) in values {
         form.values_signal
             .write()
@@ -183,6 +183,18 @@ fn test_get_enum_field() {
     run_with_scope(|| {
         let form = make_form_with_values(vec![("role", "admin")]);
         assert_eq!(form.get(MockUser::role), Some(MockRole::Admin));
+    });
+}
+
+#[test]
+fn test_set_enum_value_round_trips_without_json_quotes() {
+    run_with_scope(|| {
+        let form = DynamicForm::<MockUser>::default();
+
+        form.set(MockUser::role.as_str(), MockRole::Admin);
+
+        assert_eq!(form.get(MockUser::role), Some(MockRole::Admin));
+        assert_eq!(form.get_data().unwrap().role, MockRole::Admin);
     });
 }
 
@@ -518,12 +530,12 @@ fn test_get_nested_type_empty_array_returns_none() {
     assert_eq!(get_nested_type(&schema, "items.0.name"), None);
 }
 
-// --- Full round-trip: Form<MockClient> ---
+// --- Full round-trip: DynamicForm<MockClient> ---
 
 #[test]
 fn test_form_get_data_with_optional_struct() {
     run_with_scope(|| {
-        let mut form = Form::<MockClient>::default();
+        let mut form = DynamicForm::<MockClient>::default();
         for (k, v) in [
             ("name", "Alice"),
             ("spouse.first_name", "Bob"),
@@ -547,7 +559,7 @@ fn test_form_get_data_with_optional_struct() {
 #[test]
 fn test_form_get_data_with_optional_vec() {
     run_with_scope(|| {
-        let mut form = Form::<MockClient>::default();
+        let mut form = DynamicForm::<MockClient>::default();
         for (k, v) in [
             ("name", "Alice"),
             ("children.0.name", "Charlie"),

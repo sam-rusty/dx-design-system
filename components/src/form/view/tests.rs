@@ -10,7 +10,7 @@ mod tooltip_render {
     use validator::Validate;
 
     use crate::field_name::{Field, FieldType, FormSchema};
-    use crate::form::{FormProvider, TextInput, use_form};
+    use crate::form::dynamic::{FormProvider, TextInput, use_dynamic_form};
     use crate::{Checkbox, RadioGroup, Select, TextArea};
 
     #[derive(Clone, Default, Serialize, Deserialize, Validate)]
@@ -44,7 +44,7 @@ mod tooltip_render {
     #[test]
     fn text_input_with_tooltip() {
         mount(|| {
-            let form = use_form::<Mock>();
+            let form = use_dynamic_form::<Mock>();
             rsx! {
                 FormProvider { form,
                     TextInput { field: note_field(), tooltip: Some(rsx! { "help" }) }
@@ -56,7 +56,7 @@ mod tooltip_render {
     #[test]
     fn text_input_without_tooltip() {
         mount(|| {
-            let form = use_form::<Mock>();
+            let form = use_dynamic_form::<Mock>();
             rsx! {
                 FormProvider { form,
                     TextInput { field: note_field() }
@@ -68,7 +68,7 @@ mod tooltip_render {
     #[test]
     fn textarea_with_tooltip() {
         mount(|| {
-            let form = use_form::<Mock>();
+            let form = use_dynamic_form::<Mock>();
             rsx! {
                 FormProvider { form,
                     TextArea { field: note_field(), tooltip: Some(rsx! { "help" }) }
@@ -80,7 +80,7 @@ mod tooltip_render {
     #[test]
     fn textarea_without_tooltip() {
         mount(|| {
-            let form = use_form::<Mock>();
+            let form = use_dynamic_form::<Mock>();
             rsx! {
                 FormProvider { form,
                     TextArea { field: note_field() }
@@ -92,7 +92,7 @@ mod tooltip_render {
     #[test]
     fn select_with_tooltip() {
         mount(|| {
-            let form = use_form::<Mock>();
+            let form = use_dynamic_form::<Mock>();
             rsx! {
                 FormProvider { form,
                     Select { field: note_field(), options: OPTS, tooltip: Some(rsx! { "help" }) }
@@ -104,7 +104,7 @@ mod tooltip_render {
     #[test]
     fn select_without_tooltip() {
         mount(|| {
-            let form = use_form::<Mock>();
+            let form = use_dynamic_form::<Mock>();
             rsx! {
                 FormProvider { form,
                     Select { field: note_field(), options: OPTS }
@@ -116,7 +116,7 @@ mod tooltip_render {
     #[test]
     fn checkbox_with_tooltip() {
         mount(|| {
-            let form = use_form::<Mock>();
+            let form = use_dynamic_form::<Mock>();
             rsx! {
                 FormProvider { form,
                     Checkbox { field: note_field(), tooltip: Some(rsx! { "help" }) }
@@ -128,7 +128,7 @@ mod tooltip_render {
     #[test]
     fn checkbox_without_tooltip() {
         mount(|| {
-            let form = use_form::<Mock>();
+            let form = use_dynamic_form::<Mock>();
             rsx! {
                 FormProvider { form,
                     Checkbox { field: note_field() }
@@ -140,7 +140,7 @@ mod tooltip_render {
     #[test]
     fn radio_with_tooltip() {
         mount(|| {
-            let form = use_form::<Mock>();
+            let form = use_dynamic_form::<Mock>();
             rsx! {
                 FormProvider { form,
                     RadioGroup { field: note_field(), options: OPTS, tooltip: Some(rsx! { "help" }) }
@@ -152,7 +152,7 @@ mod tooltip_render {
     #[test]
     fn radio_without_tooltip() {
         mount(|| {
-            let form = use_form::<Mock>();
+            let form = use_dynamic_form::<Mock>();
             rsx! {
                 FormProvider { form,
                     RadioGroup { field: note_field(), options: OPTS }

@@ -1,15 +1,14 @@
 use dioxus::prelude::*;
 use ds_utils::format::merge;
 
-use crate::field_name::Field;
-use crate::form::FormContext;
+use crate::form::typed::FieldHandle;
 use crate::{Icon, IconName, Text, TextSize, TextTone};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct PasswordStrengthProps {
-    /// The bound password field.
+    /// The bound password field: a bare lens or `form.field(...)`.
     #[props(into)]
-    pub field: Field,
+    pub field: FieldHandle,
     /// Minimum length surfaced in the checklist row.
     #[props(default = 8)]
     pub min_len: usize,
@@ -31,17 +30,13 @@ pub struct PasswordStrengthProps {
 }
 
 /// Strength meter + live minimum-length checklist for a form-bound password
-/// field. Reads the field's value from the surrounding [`FormContext`], so it
-/// composes beside (not inside) the [`crate::PasswordInput`] it describes.
+/// field. Reads the field's value through its binding, so it composes beside
+/// (not inside) the `PasswordInput` it describes.
 pub fn PasswordStrength(props: PasswordStrengthProps) -> Element {
-    let form = use_context::<FormContext>();
-    let name = props.field.name;
+    let field = props.field.bind();
     let min_len = props.min_len;
 
-    let value = use_memo(move || {
-        form.values_signal
-            .with(|v| v.get(name).cloned().unwrap_or_default())
-    });
+    let value = use_memo(move || field.display());
     let score = use_memo(move || password_score(&value()));
     let long_enough = use_memo(move || value().len() >= min_len);
 

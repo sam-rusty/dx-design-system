@@ -7,7 +7,8 @@ use ds_utils::format::merge;
 use super::use_field_binding;
 use crate::copyable::copy_to_clipboard;
 use crate::field_name::Field;
-use crate::form::{FieldContext, Form as FormHook, FormContext, FormData, FormSubmit};
+use crate::form::hook::FormContext;
+use crate::form::{DynamicForm, FieldContext, FormData, FormSubmit, GLOBAL_ERROR};
 use crate::icon::{Icon, IconName};
 use crate::input::{FieldSize, InputBase, InputType};
 use crate::input_types::{
@@ -37,7 +38,7 @@ pub(crate) fn LabelHint(tooltip: Element) -> Element {
 
 #[component]
 pub fn FormProvider<T>(
-    form: FormHook<T>,
+    form: DynamicForm<T>,
     #[props(default)] action: Option<FormSubmit<T>>,
     #[props(default)] loading: Option<Signal<bool>>,
     #[props(default = true)] inline_error: bool,
@@ -46,7 +47,7 @@ pub fn FormProvider<T>(
 where
     T: FormData + Send + Sync + 'static,
 {
-    use crate::form::{FormContext, SetValueFn, SubmitFn, TouchFieldFn};
+    use crate::form::hook::{FormContext, SetValueFn, SubmitFn, TouchFieldFn};
 
     let set_value = use_hook(move || {
         CopyValue::new_in_scope(
@@ -99,8 +100,7 @@ where
 
     let ctx = FormContext {
         values_signal: form.values_signal,
-        errors_signal: form.errors_signal,
-        touched_signal: form.touched_signal,
+        aux: form.aux,
         set_value,
         touch_field,
         disabled,
@@ -127,9 +127,7 @@ pub fn Form(
 
     let is_disabled = ctx.disabled.map(|d| d()).unwrap_or(false);
 
-    let global_error = ctx
-        .errors_signal
-        .with(|e| e.get("__global").cloned().flatten());
+    let global_error = ctx.aux.with(|a| a.error(GLOBAL_ERROR));
 
     rsx! {
         form {
@@ -194,12 +192,10 @@ pub fn FormField(field: Field, children: Element) -> Element {
 
     let ctx = use_context::<FormContext>();
 
-    let is_touched = ctx.touched_signal.with(|t| t.contains(field.name));
-
-    let has_error = ctx
-        .errors_signal
-        .with(|e| e.get(field.name).is_some_and(|err| err.is_some()));
-    let data_invalid = (is_touched && has_error).then_some("true".to_string());
+    let data_invalid = ctx
+        .aux
+        .with(|a| a.is_touched(field.name) && a.error(field.name).is_some())
+        .then_some("true".to_string());
 
     rsx! {
         FormFieldWrapper { data_name: "FormField".to_string(), data_invalid, {children} }
@@ -785,10 +781,8 @@ pub fn FormError(
 
     if let (Some(field_ctx), Some(ctx)) = (field_ctx, form_ctx) {
         let field_name = field_ctx.name.clone();
-        let is_touched = ctx.touched_signal.with(|t| t.contains(&*field_name));
-        let error = ctx
-            .errors_signal
-            .with(|e| e.get(&*field_name).cloned().flatten());
+        let is_touched = ctx.aux.with(|a| a.is_touched(&field_name));
+        let error = ctx.aux.with(|a| a.error(&field_name));
 
         if !is_touched {
             return rsx! {};

@@ -13,14 +13,16 @@ use ds_utils::DsError;
 use ds_utils::format::snake_to_title;
 use validator::Validate;
 
-use super::aux::AuxState;
 use super::binding::{BoundField, FieldBinding};
-use super::errors::{field_validation_error, flatten_validation_errors};
 use super::lens::Lens;
 use super::value::FormValue;
+use crate::form::aux::AuxState;
+use crate::form::errors::{
+    GLOBAL_ERROR, ListIndexStyle, field_validation_error, flatten_validation_errors,
+};
 
-/// Error slot for failures that don't belong to a specific field.
-pub const GLOBAL_ERROR: &str = "__global";
+/// Typed lens paths key list indices with dots (`items.2.qty`).
+const INDEX_STYLE: ListIndexStyle = ListIndexStyle::Dots;
 
 pub trait TypedFormData: Validate + Clone + Default + PartialEq + 'static {}
 impl<T> TypedFormData for T where T: Validate + Clone + Default + PartialEq + 'static {}
@@ -255,7 +257,7 @@ impl<T: TypedFormData> Form<T> {
 
         let data = self.data.peek().clone();
         if let Err(errs) = data.validate() {
-            for (path, msg) in flatten_validation_errors(&errs) {
+            for (path, msg) in flatten_validation_errors(&errs, INDEX_STYLE) {
                 new_errors.entry(path).or_insert(msg);
             }
         }
@@ -292,7 +294,7 @@ impl<T: TypedFormData> Form<T> {
     pub fn set_server_error(&self, error: DsError) {
         match error {
             DsError::Validation(msg, errors) => {
-                let flat = flatten_validation_errors(&errors);
+                let flat = flatten_validation_errors(&errors, INDEX_STYLE);
                 let mut aux = self.aux;
                 let mut a = aux.write();
                 a.set_error(GLOBAL_ERROR, Some(msg));
@@ -347,7 +349,7 @@ impl<T: TypedFormData> Form<T> {
             .peek()
             .validate()
             .err()
-            .and_then(|errs| field_validation_error(&errs, path))
+            .and_then(|errs| field_validation_error(&errs, path, INDEX_STYLE))
         {
             return Some(msg);
         }

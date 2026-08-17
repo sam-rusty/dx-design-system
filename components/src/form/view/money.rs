@@ -51,7 +51,7 @@ pub fn MoneyInput(props: MoneyInputProps) -> Element {
 }
 
 #[component]
-fn MoneyControl(
+pub(crate) fn MoneyControl(
     decimals: u32,
     #[props(default)] size: FieldSize,
     #[props(default)] autofocus: bool,

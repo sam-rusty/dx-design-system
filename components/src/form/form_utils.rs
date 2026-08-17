@@ -6,6 +6,7 @@ use validator::ValidationErrors;
 
 use crate::field_name::FieldType;
 use crate::form::FormData;
+use crate::form::errors::ListIndexStyle;
 
 fn parent_key_set(values: &HashMap<String, String>) -> HashSet<&str> {
     let mut keys: Vec<&str> = values.keys().map(|s| s.as_str()).collect();
@@ -222,118 +223,19 @@ pub fn set_nested_value(root: &mut Value, path: &str, value: Value) {
     }
 }
 
-/// Recursively flattens nested ValidationErrors into a simple HashMap
+/// Recursively flattens nested ValidationErrors into a simple HashMap.
+/// Delegates to the shared walker; the dynamic form keeps the legacy
+/// bracket-style list keys (`items[2].qty`).
 pub fn flatten_validation_errors(errors: &ValidationErrors) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-    extract_errors_recursive(errors, "", &mut map);
-    map
+    crate::form::errors::flatten_validation_errors(errors, ListIndexStyle::Brackets)
 }
 
 /// Resolves the validation message for a single `field` (dot-notation) without
-/// flattening the whole error tree. The returned string is byte-identical to
-/// `flatten_validation_errors(errors).get(field)` for the same key — including
-/// the transparent-wrapper bubble-up — so per-field validation stays consistent
-/// with whole-form validation while avoiding the full-map allocation on every
-/// keystroke.
+/// flattening the whole error tree. Byte-identical to
+/// `flatten_validation_errors(errors).get(field)` for the same key, including
+/// the transparent-wrapper bubble-up.
 pub fn field_validation_error(errors: &ValidationErrors, field: &str) -> Option<String> {
-    let mut out = None;
-    find_field_error_recursive(errors, "", field, &mut out);
-    out
-}
-
-/// Walks the error tree mirroring `extract_errors_recursive`'s key construction,
-/// stopping once the target `field` (or its transparent-wrapper prefix) is found.
-fn find_field_error_recursive(
-    errors: &ValidationErrors,
-    prefix: &str,
-    target: &str,
-    out: &mut Option<String>,
-) {
-    for (field, kind) in errors.errors() {
-        let path = if prefix.is_empty() {
-            field.to_string()
-        } else {
-            format!("{}.{}", prefix, field)
-        };
-
-        match kind {
-            validator::ValidationErrorsKind::Field(errs) => {
-                if let Some(err) = errs.first() {
-                    let msg = err
-                        .message
-                        .as_ref()
-                        .map(|m| m.to_string())
-                        .unwrap_or_else(|| err.code.to_string());
-
-                    // Direct hit on the leaf path takes precedence and is final.
-                    if path == target {
-                        *out = Some(msg);
-                        return;
-                    }
-                    // Transparent wrappers (like `Email`) bubble their message up
-                    // to the parent prefix. Only fill the parent if not already set
-                    // and nothing has matched the target yet.
-                    if !prefix.is_empty() && prefix == target && out.is_none() {
-                        *out = Some(msg);
-                    }
-                }
-            }
-            validator::ValidationErrorsKind::Struct(nested) => {
-                find_field_error_recursive(nested, &path, target, out);
-                if out.is_some() && path == target {
-                    return;
-                }
-            }
-            validator::ValidationErrorsKind::List(list) => {
-                for (idx, nested) in list {
-                    find_field_error_recursive(nested, &format!("{}[{}]", path, idx), target, out);
-                }
-            }
-        }
-        if out.is_some() {
-            return;
-        }
-    }
-}
-
-pub fn extract_errors_recursive(
-    errors: &ValidationErrors,
-    prefix: &str,
-    map: &mut HashMap<String, String>,
-) {
-    for (field, kind) in errors.errors() {
-        let path = if prefix.is_empty() {
-            field.to_string()
-        } else {
-            format!("{}.{}", prefix, field)
-        };
-
-        match kind {
-            validator::ValidationErrorsKind::Field(errs) => {
-                if let Some(err) = errs.first() {
-                    let msg = err
-                        .message
-                        .as_ref()
-                        .map(|m| m.to_string())
-                        .unwrap_or_else(|| err.code.to_string());
-                    map.insert(path.clone(), msg.clone());
-
-                    // Bubble up for transparent wrappers (like `Email`)
-                    if !prefix.is_empty() && !map.contains_key(prefix) {
-                        map.insert(prefix.to_string(), msg);
-                    }
-                }
-            }
-            validator::ValidationErrorsKind::Struct(nested) => {
-                extract_errors_recursive(nested, &path, map)
-            }
-            validator::ValidationErrorsKind::List(list) => {
-                for (idx, nested) in list {
-                    extract_errors_recursive(nested, &format!("{}[{}]", path, idx), map);
-                }
-            }
-        }
-    }
+    crate::form::errors::field_validation_error(errors, field, ListIndexStyle::Brackets)
 }
 
 #[cfg(test)]

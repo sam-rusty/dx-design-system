@@ -4,6 +4,7 @@ mod shared;
 mod date_range_picker;
 mod date_time_picker;
 mod single;
+pub mod typed;
 
 pub use date_range_picker::DateRangePicker;
 pub use date_time_picker::{

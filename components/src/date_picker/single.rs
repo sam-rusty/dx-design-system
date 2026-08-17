@@ -8,7 +8,8 @@ use super::panel::{CalendarPanel, SelectionState};
 use super::shared::{format_display_date, *};
 use crate::calendar::{CalendarState, format_header_date, parse_date, today};
 use crate::field_name::Field;
-use crate::form::{FormFieldFrame, use_field_binding};
+use crate::form::use_field_binding;
+use crate::form::view::FormFieldFrame;
 
 #[component]
 pub fn DatePickerBase(
@@ -202,7 +203,7 @@ pub fn DatePicker(props: DatePickerProps) -> Element {
 }
 
 #[component]
-fn DatePickerControl(
+pub(crate) fn DatePickerControl(
     #[props(default)] min: Option<WireDate>,
     #[props(default)] max: Option<WireDate>,
     #[props(default)] disabled: ReadSignal<bool>,

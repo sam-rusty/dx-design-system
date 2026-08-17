@@ -3,7 +3,8 @@ use ds_macros::on_web;
 use ds_utils::format::merge;
 
 use crate::field_name::Field;
-use crate::form::{FormFieldFrame, use_field_binding};
+use crate::form::use_field_binding;
+use crate::form::view::FormFieldFrame;
 use crate::hooks::use_controlled;
 use crate::input::FieldSize;
 

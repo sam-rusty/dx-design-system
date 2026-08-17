@@ -140,3 +140,17 @@ impl<F: Clone + 'static> FormValue for Vec<F> {
         self.is_empty()
     }
 }
+
+/// RFC3339 string form value — pairs with the typed
+/// `DateTimePicker { utc: true }` (UTC store, device-local display).
+impl FormValue for time::OffsetDateTime {
+    fn to_input(&self) -> String {
+        self.format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_default()
+    }
+
+    fn from_input(input: &str) -> Result<Self, ParseError> {
+        Self::parse(input.trim(), &time::format_description::well_known::Rfc3339)
+            .map_err(|_| ParseError::new("Enter a valid date and time"))
+    }
+}

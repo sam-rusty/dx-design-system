@@ -1,5 +1,11 @@
+//! Dynamic form store: a flat `HashMap<String, String>` keyed by free-form
+//! dot-notation field names. Values round-trip through serde at the submit
+//! boundary (`T::json_schema()` drives coercion); touched/error state lives
+//! in the shared [`AuxState`] (overlay/pristine stay unused — value-map
+//! emptiness plays the pristine role here).
+
 mod action;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub use action::{FormSubmit, SubmitFn, captured_app_error};
@@ -10,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self, Value};
 use validator::{Validate, ValidationError, ValidationErrors};
 
+use super::aux::AuxState;
+use super::errors::GLOBAL_ERROR;
 use super::form_utils::*;
 use crate::field_name::{Field, FormSchema};
 use crate::{FieldKey, FieldType};
@@ -26,10 +34,10 @@ impl<T> FormData for T where
 pub type SetValueFn = Box<dyn Fn(&str, String)>;
 pub type TouchFieldFn = Box<dyn Fn(&str)>;
 
-pub struct Form<T> {
+pub struct DynamicForm<T> {
     pub values_signal: Signal<HashMap<String, String>>,
-    pub errors_signal: Signal<HashMap<String, Option<String>>>,
-    pub touched_signal: Signal<HashSet<String>>,
+    /// Shared per-field UI state (touched + errors; overlay/pristine unused).
+    pub aux: Signal<AuxState>,
     pub default_schema: Signal<Arc<Value>>,
     pub required_fields: Signal<HashMap<String, bool>>,
     _phantom: std::marker::PhantomData<T>,
@@ -51,24 +59,23 @@ impl<T: Serialize + Default> ToggleDefault for Option<T> {
 }
 
 // Boilerplate trait implementations
-impl<T> Clone for Form<T> {
+impl<T> Clone for DynamicForm<T> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<T> Copy for Form<T> {}
+impl<T> Copy for DynamicForm<T> {}
 
-impl<T> PartialEq for Form<T> {
+impl<T> PartialEq for DynamicForm<T> {
     fn eq(&self, other: &Self) -> bool {
         self.values_signal == other.values_signal
-            && self.errors_signal == other.errors_signal
-            && self.touched_signal == other.touched_signal
+            && self.aux == other.aux
             && self.required_fields == other.required_fields
     }
 }
 
-impl<T> Default for Form<T>
+impl<T> Default for DynamicForm<T>
 where
     T: FormData,
 {
@@ -76,8 +83,7 @@ where
         let schema = T::json_schema();
         Self {
             values_signal: Signal::new_in_scope(Default::default(), ScopeId::ROOT),
-            errors_signal: Signal::new_in_scope(Default::default(), ScopeId::ROOT),
-            touched_signal: Signal::new_in_scope(Default::default(), ScopeId::ROOT),
+            aux: Signal::new_in_scope(Default::default(), ScopeId::ROOT),
             default_schema: Signal::new_in_scope(Arc::new(schema), ScopeId::ROOT),
             required_fields: Signal::new_in_scope(Default::default(), ScopeId::ROOT),
             _phantom: std::marker::PhantomData,
@@ -85,29 +91,32 @@ where
     }
 }
 
-pub fn use_form<T: FormData>() -> Form<T> {
-    Form {
+pub fn use_dynamic_form<T: FormData>() -> DynamicForm<T> {
+    DynamicForm {
         values_signal: use_signal(Default::default),
-        errors_signal: use_signal(Default::default),
-        touched_signal: use_signal(Default::default),
+        aux: use_signal(Default::default),
         default_schema: use_signal(|| Arc::new(T::json_schema())),
         required_fields: use_signal(Default::default),
         _phantom: std::marker::PhantomData,
     }
 }
 
-impl<T: FormData> Form<T> {
+impl<T: FormData> DynamicForm<T> {
     pub fn error(&self, field: &str) -> Option<String> {
-        self.errors_signal.with(|e| e.get(field).cloned().flatten())
+        self.aux.with(|a| a.error(field))
     }
 
     pub fn is_touched(&self, field: &str) -> bool {
-        self.touched_signal.with(|t| t.contains(field))
+        self.aux.with(|a| a.is_touched(field))
     }
 
     pub fn set<D: Serialize>(&self, field: &str, value: D) {
-        let value = match serde_json::to_string(&value) {
-            Ok(s) => s,
+        let value = match serde_json::to_value(value) {
+            // The backing map stores the text a native input would emit. Keep
+            // strings unquoted so enum values can round-trip through `get`.
+            Ok(Value::String(s)) => s,
+            Ok(Value::Null) => String::new(),
+            Ok(value) => value.to_string(),
             Err(e) => {
                 debug_assert!(
                     false,
@@ -199,18 +208,16 @@ impl<T: FormData> Form<T> {
     }
 
     pub fn touch_field(&self, field: &str) {
-        let mut s = self.touched_signal;
-        s.write().insert(field.to_string());
+        let mut aux = self.aux;
+        aux.write().touch(field);
         self.trigger_field_validation(field);
     }
 
     pub fn reset(&self) {
         let mut vs = self.values_signal;
-        let mut es = self.errors_signal;
-        let mut ts = self.touched_signal;
+        let mut aux = self.aux;
         *vs.write() = Default::default();
-        *es.write() = Default::default();
-        *ts.write() = Default::default();
+        *aux.write() = AuxState::default();
     }
 
     pub fn default_values<F: Serialize>(&self, default_values: F) {
@@ -224,7 +231,7 @@ impl<T: FormData> Form<T> {
 }
 
 /// Validation
-impl<T: FormData> Form<T> {
+impl<T: FormData> DynamicForm<T> {
     pub fn get_data(&self) -> Option<T> {
         let schema = self.default_schema.peek().clone();
         self.values_signal
@@ -260,10 +267,10 @@ impl<T: FormData> Form<T> {
         // Touch the fields manually, otherwise the errors won't return.
         // Also register required field signals so trigger_field_validation can use them later.
         {
-            let mut ts = self.touched_signal;
-            let mut t = ts.write();
+            let mut aux = self.aux;
+            let mut a = aux.write();
             for field in fields {
-                t.insert(field.name.to_string());
+                a.touch(field.name);
             }
         }
         {
@@ -301,10 +308,11 @@ impl<T: FormData> Form<T> {
                 // Do NOT fallback to "Invalid value" — the parse failure may come
                 // from a different step's struct entirely (e.g. missing #[serde(default)]).
                 let has_errors = !required_empty.is_empty();
+                let mut aux = self.aux;
+                let mut a = aux.write();
                 for field in fields {
                     let error = required_empty.remove(field.name);
-                    let mut es = self.errors_signal;
-                    es.write().insert(field.name.to_string(), error);
+                    a.set_error(field.name, error);
                 }
                 return !has_errors;
             }
@@ -317,8 +325,8 @@ impl<T: FormData> Form<T> {
 
         let mut has_errors = !required_empty.is_empty();
         {
-            let mut es = self.errors_signal;
-            let mut w = es.write();
+            let mut aux = self.aux;
+            let mut a = aux.write();
             for field in fields {
                 let error = all_errors
                     .get(field.name)
@@ -329,14 +337,14 @@ impl<T: FormData> Form<T> {
                     has_errors = true;
                 }
 
-                w.insert(field.name.to_string(), error);
+                a.set_error(field.name, error);
             }
         }
 
         !has_errors
     }
 
-    /// Updates `errors_signal` for one field: `Validate` message for this field if any, else
+    /// Updates the field's error slot: `Validate` message for this field if any, else
     /// required-but-empty (same precedence as the Leptos form hook).
     fn trigger_field_validation(&self, field: &str) {
         let is_required = self
@@ -357,25 +365,18 @@ impl<T: FormData> Form<T> {
             .and_then(|errs| field_validation_error(&errs, field))
             .or(empty_required);
 
-        let mut es = self.errors_signal;
-        es.write().insert(field.to_string(), error_msg);
+        let mut aux = self.aux;
+        aux.write().set_error(field, error_msg);
     }
 
     fn add_validation_errors(&self, errors: ValidationErrors) {
         let flat_errors = flatten_validation_errors(&errors);
 
-        {
-            let mut ts = self.touched_signal;
-            let mut t = ts.write();
-            for field in flat_errors.keys() {
-                t.insert(field.clone());
-            }
-        }
-
-        let mut es = self.errors_signal;
-        let mut e = es.write();
+        let mut aux = self.aux;
+        let mut a = aux.write();
         for (field, msg) in flat_errors {
-            e.insert(field, Some(msg));
+            a.touch(&field);
+            a.set_error(&field, Some(msg));
         }
     }
 
@@ -383,7 +384,7 @@ impl<T: FormData> Form<T> {
     fn set_global_error(&self, msg: &str) {
         let mut errors = ValidationErrors::new();
         errors.add(
-            "__global",
+            GLOBAL_ERROR,
             ValidationError::new("error").with_message(msg.to_string().into()),
         );
         self.add_validation_errors(errors);
@@ -391,7 +392,7 @@ impl<T: FormData> Form<T> {
 }
 
 // Form submission and response
-impl<T: FormData> Form<T> {
+impl<T: FormData> DynamicForm<T> {
     pub fn submit(&self, on_submit: impl Fn(T) + 'static) {
         if let Some(payload) = self.validate_and_get() {
             on_submit(payload);
@@ -412,9 +413,9 @@ impl<T: FormData> Form<T> {
     }
 
     pub fn clear_global_error(&self) {
-        let mut es = self.errors_signal;
-        if es.peek().get("__global").is_some_and(|v| v.is_some()) {
-            es.write().insert("__global".to_string(), None);
+        let mut aux = self.aux;
+        if aux.peek().error(GLOBAL_ERROR).is_some() {
+            aux.write().set_error(GLOBAL_ERROR, None);
         }
     }
 }
@@ -423,8 +424,8 @@ impl<T: FormData> Form<T> {
 #[derive(Clone, Copy)]
 pub struct FormContext {
     pub values_signal: Signal<HashMap<String, String>>,
-    pub errors_signal: Signal<HashMap<String, Option<String>>>,
-    pub touched_signal: Signal<HashSet<String>>,
+    /// Shared per-field UI state (touched + errors).
+    pub aux: Signal<AuxState>,
     pub set_value: CopyValue<SetValueFn>,
     pub touch_field: CopyValue<TouchFieldFn>,
     /// Reactive disabled flag, derived via `use_memo` from either an explicit

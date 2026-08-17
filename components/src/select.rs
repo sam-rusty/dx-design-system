@@ -2,7 +2,8 @@ use dioxus::prelude::*;
 use ds_utils::classes;
 
 use crate::field_name::Field;
-use crate::form::{FormFieldFrame, use_field_binding};
+use crate::form::use_field_binding;
+use crate::form::view::FormFieldFrame;
 use crate::hooks::{use_escape_listener, use_outside_dismiss, use_unique_id};
 use crate::icon::{Icon, IconName};
 use crate::input::FieldSize;

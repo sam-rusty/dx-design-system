@@ -8,8 +8,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use validator::Validate;
 
-use ds_components::form::{FormProvider, TextInput, use_form};
-use ds_components::{Field, FieldType, FormSchema, PasswordInput};
+use ds_components::form::dynamic::PasswordInput;
+use ds_components::form::dynamic::{FormProvider, TextInput, use_dynamic_form};
+use ds_components::{Field, FieldType, FormSchema};
 
 #[derive(Clone, Default, Serialize, Deserialize, Validate)]
 struct LoginForm {
@@ -25,10 +26,10 @@ impl FormSchema for LoginForm {
 }
 
 fn app() -> Element {
-    let form = use_form::<LoginForm>();
+    let form = use_dynamic_form::<LoginForm>();
     rsx! {
         FormProvider { form,
-            ds_components::form::Form {
+            ds_components::form::dynamic::Form {
                 TextInput { field: Field::new("username", "Username", true, FieldType::String) }
                 PasswordInput { field: Field::new("password", "Password", true, FieldType::String) }
             }

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use ds_utils::format::merge;
 
-use super::binding::BoundField;
+use super::binding::{BoundField, FieldHandle};
 use super::form::{Form as FormStore, TypedFormData};
 use crate::checkbox::CheckboxRow;
 use crate::copyable::copy_to_clipboard;
@@ -79,6 +79,9 @@ where
         (None, None) => None,
     };
 
+    // The store itself rides context too, so controls can resolve bare-lens
+    // `field:` props (`MyForm::name`) without an explicit `form.field(...)`.
+    use_context_provider(|| form);
     use_context_provider(|| FormContext {
         disabled,
         submit,
@@ -135,7 +138,8 @@ pub fn Form(
 /// controls, registers the field for submit-time required checks, and keeps
 /// both in sync when the bound path changes (e.g. row re-indexing).
 #[component]
-pub fn FormField(#[props(into)] field: BoundField, children: Element) -> Element {
+pub fn FormField(#[props(into)] field: FieldHandle, children: Element) -> Element {
+    let field = field.bind();
     let init = field.clone();
     let ctx_field: Signal<BoundField> = use_hook(move || {
         init.register();
@@ -254,7 +258,10 @@ pub fn FieldActions(
 /// [`FieldActions`] + [`FormError`].
 #[component]
 pub fn FormFieldFrame(
-    #[props(into)] field: BoundField,
+    #[props(into)] field: FieldHandle,
+    /// Overrides the lens-derived field label.
+    #[props(default)]
+    label: Option<String>,
     #[props(default)] tooltip: Option<Element>,
     #[props(default)] copyable: bool,
     #[props(default)] clearable: bool,
@@ -262,7 +269,8 @@ pub fn FormFieldFrame(
     #[props(default)] actions_class: String,
     children: Element,
 ) -> Element {
-    let label = field.label();
+    let field = field.bind();
+    let label = label.unwrap_or_else(|| field.label().to_string());
     let wrapper_class = merge(&["relative w-full", &class]);
     rsx! {
         FormField { field,
@@ -281,9 +289,12 @@ pub fn FormFieldFrame(
 /// Shared props for the typed form-bound inputs.
 #[derive(Props, Clone, PartialEq)]
 pub struct TypedInputProps {
-    /// The bound form field (from `form.field(...)`).
+    /// The bound form field: a bare lens (`MyForm::name`) or `form.field(...)`.
     #[props(into)]
-    pub field: BoundField,
+    pub field: FieldHandle,
+    /// Overrides the lens-derived field label.
+    #[props(default)]
+    pub label: Option<String>,
     /// Show the copy-to-clipboard action.
     #[props(default)]
     pub copyable: bool,
@@ -311,6 +322,7 @@ fn typed_form_input(props: TypedInputProps, kind: TypedKind) -> Element {
     rsx! {
         FormFieldFrame {
             field: props.field,
+            label: props.label,
             tooltip: props.tooltip,
             copyable: props.copyable,
             clearable: props.clearable,
@@ -356,9 +368,9 @@ pub fn PasswordInput(props: TypedInputProps) -> Element {
 /// HTML type.
 #[derive(Props, Clone, PartialEq)]
 pub struct InputProps {
-    /// The bound form field (from `form.field(...)`).
+    /// The bound form field: a bare lens (`MyForm::name`) or `form.field(...)`.
     #[props(into)]
-    pub field: BoundField,
+    pub field: FieldHandle,
     /// HTML input type.
     pub r#type: InputType,
     /// Show the copy-to-clipboard action.
@@ -396,6 +408,7 @@ pub fn Input(props: InputProps) -> Element {
     typed_form_input(
         TypedInputProps {
             field,
+            label: None,
             copyable,
             clearable,
             autofocus,
@@ -410,9 +423,9 @@ pub fn Input(props: InputProps) -> Element {
 /// Props for [`PercentageInput`]: [`TypedInputProps`] plus clamp bounds.
 #[derive(Props, Clone, PartialEq)]
 pub struct PercentageInputProps {
-    /// The bound form field (from `form.field(...)`).
+    /// The bound form field: a bare lens (`MyForm::name`) or `form.field(...)`.
     #[props(into)]
-    pub field: BoundField,
+    pub field: FieldHandle,
     /// Show the copy-to-clipboard action.
     #[props(default)]
     pub copyable: bool,
@@ -455,6 +468,7 @@ pub fn PercentageInput(props: PercentageInputProps) -> Element {
     typed_form_input(
         TypedInputProps {
             field,
+            label: None,
             copyable,
             clearable,
             autofocus,
@@ -469,9 +483,9 @@ pub fn PercentageInput(props: PercentageInputProps) -> Element {
 /// Props for [`BareTextInput`].
 #[derive(Props, Clone, PartialEq)]
 pub struct BareTextInputProps {
-    /// The bound form field (from `form.field(...)`).
+    /// The bound form field: a bare lens (`MyForm::name`) or `form.field(...)`.
     #[props(into)]
-    pub field: BoundField,
+    pub field: FieldHandle,
     /// Full class list for the chromeless control.
     #[props(default)]
     pub class: String,
@@ -501,9 +515,12 @@ pub fn BareTextInput(props: BareTextInputProps) -> Element {
 /// Props for [`TextArea`], the typed form-bound textarea.
 #[derive(Props, Clone, PartialEq)]
 pub struct TextAreaProps {
-    /// The bound form field (from `form.field(...)`).
+    /// The bound form field: a bare lens (`MyForm::name`) or `form.field(...)`.
     #[props(into)]
-    pub field: BoundField,
+    pub field: FieldHandle,
+    /// Overrides the lens-derived field label.
+    #[props(default)]
+    pub label: Option<String>,
     /// Autofocus on mount.
     #[props(default)]
     pub autofocus: bool,
@@ -538,6 +555,7 @@ pub fn TextArea(props: TextAreaProps) -> Element {
     rsx! {
         FormFieldFrame {
             field: props.field,
+            label: props.label,
             tooltip: props.tooltip,
             class: props.class,
             TextAreaControl {
@@ -556,9 +574,9 @@ pub fn TextArea(props: TextAreaProps) -> Element {
 /// Props for [`Checkbox`], the typed form-bound checkbox row.
 #[derive(Props, Clone, PartialEq)]
 pub struct CheckboxProps {
-    /// The bound form field (from `form.field(...)`), `bool`-typed.
+    /// The bound form field, `bool`-typed: a bare lens or `form.field(...)`.
     #[props(into)]
-    pub field: BoundField,
+    pub field: FieldHandle,
     /// Extra classes merged onto the row.
     #[props(default)]
     pub class: String,
@@ -569,9 +587,10 @@ pub struct CheckboxProps {
 
 /// Typed form-bound checkbox with trailing label and inline error.
 pub fn Checkbox(props: CheckboxProps) -> Element {
-    let label = props.field.label().to_string();
+    let field = props.field.bind();
+    let label = field.label().to_string();
     rsx! {
-        FormField { field: props.field,
+        FormField { field,
             CheckboxRow { class: props.class, label, tooltip: props.tooltip }
             FormError {}
         }
@@ -581,10 +600,11 @@ pub fn Checkbox(props: CheckboxProps) -> Element {
 /// Props for [`Select`], the typed form-bound select.
 #[derive(Props, Clone, PartialEq)]
 pub struct SelectProps {
-    /// The bound form field (from `form.field(...)`). Single-select enum or
-    /// `Option<enum>` fields; the stored value uses the enum's serde name.
+    /// The bound form field: a bare lens or `form.field(...)`. Single-select
+    /// enum or `Option<enum>` fields; the stored value uses the enum's serde
+    /// name.
     #[props(into)]
-    pub field: BoundField,
+    pub field: FieldHandle,
     /// Extra classes merged onto the field wrapper.
     #[props(default)]
     pub class: String,
@@ -618,11 +638,12 @@ pub struct SelectProps {
 /// (Multi-select needs `Vec` text encoding and stays on the legacy form for
 /// now.)
 pub fn Select(props: SelectProps) -> Element {
-    let field_label = props.field.label();
+    let field = props.field.bind();
+    let field_label = field.label();
     let open = use_signal(|| false);
     rsx! {
         FormFieldFrame {
-            field: props.field,
+            field,
             tooltip: props.tooltip,
             copyable: props.copyable,
             clearable: props.clearable,
@@ -648,3 +669,49 @@ pub fn Select(props: SelectProps) -> Element {
         }
     }
 }
+
+/// Props for [`MoneyInput`], the typed form-bound money input.
+#[derive(Props, Clone, PartialEq)]
+pub struct MoneyInputProps {
+    /// The bound form field, storing minor units: a bare lens or
+    /// `form.field(...)`.
+    #[props(into)]
+    pub field: FieldHandle,
+    /// Overrides the lens-derived field label.
+    #[props(default)]
+    pub label: Option<String>,
+    /// Minor-unit exponent of the currency (2 → cents, 0 → zero-decimal).
+    pub decimals: u32,
+    /// Visual size (shared [`FieldSize`] scale).
+    #[props(default)]
+    pub size: FieldSize,
+    /// Autofocus on mount.
+    #[props(default)]
+    pub autofocus: bool,
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+    /// Extra classes merged onto the field wrapper.
+    #[props(default)]
+    pub class: String,
+}
+
+/// Typed form-bound money input: major-unit display, minor-unit store.
+pub fn MoneyInput(props: MoneyInputProps) -> Element {
+    rsx! {
+        FormFieldFrame {
+            field: props.field,
+            label: props.label,
+            tooltip: props.tooltip,
+            class: props.class,
+            crate::form::view::MoneyControl {
+                decimals: props.decimals,
+                size: props.size,
+                autofocus: props.autofocus,
+            }
+        }
+    }
+}
+
+#[cfg(feature = "date-picker")]
+pub use crate::date_picker::typed::{DatePicker, DateRangePicker, DateTimePicker};

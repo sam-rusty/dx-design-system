@@ -2,7 +2,8 @@ use dioxus::prelude::*;
 use ds_utils::format::merge;
 
 use crate::field_name::Field;
-use crate::form::{FormError, FormField, LabelHint, use_field_binding};
+use crate::form::use_field_binding;
+use crate::form::view::{FormError, FormField, LabelHint};
 use crate::hooks::use_controlled;
 use crate::icon::{Icon, IconName};
 use crate::label::Label;

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 
 use crate::field_name::Field;
-use crate::form::FormContext;
+use crate::form::dynamic::FormContext;
 
 // ---------------------------------------------------------------------------
 // StepFieldRegistry — context provided by `Step` so input components can

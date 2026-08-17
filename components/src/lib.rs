@@ -168,8 +168,9 @@ pub use ds_macros::{FormFields, FormOptions, Steps};
 pub use file_upload::{FileInfo, FileUpload};
 #[cfg(feature = "form")]
 pub use form::{
-    BareTextInput, FieldBinding, Form, FormData, FormField, FormProvider, FormSubmit, MoneyInput,
-    NumberInput, PasswordInput, TextInput, use_field_binding, use_form,
+    AuxState, BareTextInput, DynamicForm, FieldBinding, Form, FormData, FormField, FormProvider,
+    FormSubmit, MoneyInput, NumberInput, PasswordInput, TextInput, TypedFormData, use_dynamic_form,
+    use_field_binding, use_form,
 };
 // Root exports for the typed form store; the derive macros reference these
 // paths (`components::FormValue`).

@@ -379,6 +379,23 @@ fn server_error_maps_to_fields() {
     });
 }
 
+#[test]
+fn submit_clears_global_error() {
+    in_runtime(|| {
+        let form = new_form();
+        form.set(OrderForm::name, "Ada".to_string());
+        form.set(
+            OrderForm::address.then(Address::street),
+            "Main St".to_string(),
+        );
+        form.set_server_error(ds_utils::DsError::Other("Try again".into()));
+
+        form.submit(|_| {});
+
+        assert_eq!(form.global_error(), None);
+    });
+}
+
 /// Worst-case keystroke probe: 200-row Vec form, per-keystroke cost of a
 /// touched `set_text` (typed write + whole-struct validate + display memo
 /// recompute). Run manually: `cargo test -p ds-components --lib -- --ignored

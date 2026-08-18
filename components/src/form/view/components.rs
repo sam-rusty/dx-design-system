@@ -71,10 +71,7 @@ where
         use_hook(move || {
             CopyValue::new_in_scope(
                 Box::new(move || {
-                    form.clear_global_error();
-                    if let Some(data) = form.validate_and_get() {
-                        action.call(data);
-                    }
+                    form.submit(move |data| action.call(data));
                 }) as SubmitFn,
                 ScopeId::ROOT,
             )

@@ -393,7 +393,9 @@ impl<T: FormData> DynamicForm<T> {
 
 // Form submission and response
 impl<T: FormData> DynamicForm<T> {
+    /// Clear any previous global error, validate, and submit valid data.
     pub fn submit(&self, on_submit: impl Fn(T) + 'static) {
+        self.clear_global_error();
         if let Some(payload) = self.validate_and_get() {
             on_submit(payload);
         }

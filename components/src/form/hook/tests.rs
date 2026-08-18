@@ -179,6 +179,18 @@ fn test_get_bool_field() {
 }
 
 #[test]
+fn submit_clears_global_error() {
+    run_with_scope(|| {
+        let form = make_order_form_with_values(vec![]);
+        form.set_server_error(ds_utils::DsError::Other("Try again".into()));
+
+        form.submit(|_| {});
+
+        assert_eq!(form.aux.peek().error(GLOBAL_ERROR), None);
+    });
+}
+
+#[test]
 fn test_get_enum_field() {
     run_with_scope(|| {
         let form = make_form_with_values(vec![("role", "admin")]);

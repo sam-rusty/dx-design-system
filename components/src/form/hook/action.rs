@@ -12,6 +12,52 @@ pub struct FormSubmit<T: 'static> {
     result_fn: CopyValue<Box<dyn Fn() -> Option<ds_utils::Result<()>>>>,
 }
 
+/// Optional submit action accepted by the `FormProvider` prop builder.
+///
+/// This wrapper lets callers pass either a Dioxus [`Action`] directly or a
+/// [`FormSubmit`] created with [`FormSubmit::with_transform`], while retaining
+/// support for providers that do not submit.
+#[doc(hidden)]
+pub struct FormSubmitProp<T: 'static>(pub Option<FormSubmit<T>>);
+
+impl<T: 'static> Clone for FormSubmitProp<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: 'static> Copy for FormSubmitProp<T> {}
+
+impl<T: 'static> Default for FormSubmitProp<T> {
+    fn default() -> Self {
+        Self(None)
+    }
+}
+
+impl<T: 'static> PartialEq for FormSubmitProp<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T: 'static> From<FormSubmit<T>> for FormSubmitProp<T> {
+    fn from(action: FormSubmit<T>) -> Self {
+        Self(Some(action))
+    }
+}
+
+impl<T: 'static> From<Option<FormSubmit<T>>> for FormSubmitProp<T> {
+    fn from(action: Option<FormSubmit<T>>) -> Self {
+        Self(action)
+    }
+}
+
+impl<T: 'static, O: 'static> From<Action<(T,), O>> for FormSubmitProp<T> {
+    fn from(action: Action<(T,), O>) -> Self {
+        Self(Some(FormSubmit::from(action)))
+    }
+}
+
 impl<T: 'static> Clone for FormSubmit<T> {
     fn clone(&self) -> Self {
         *self

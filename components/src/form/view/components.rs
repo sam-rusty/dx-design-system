@@ -8,7 +8,7 @@ use super::use_field_binding;
 use crate::copyable::copy_to_clipboard;
 use crate::field_name::Field;
 use crate::form::hook::FormContext;
-use crate::form::{DynamicForm, FieldContext, FormData, FormSubmit, GLOBAL_ERROR};
+use crate::form::{DynamicForm, FieldContext, FormData, FormSubmitProp, GLOBAL_ERROR};
 use crate::icon::{Icon, IconName};
 use crate::input::{FieldSize, InputBase, InputType};
 use crate::input_types::{
@@ -39,7 +39,7 @@ pub(crate) fn LabelHint(tooltip: Element) -> Element {
 #[component]
 pub fn FormProvider<T>(
     form: DynamicForm<T>,
-    #[props(default)] action: Option<FormSubmit<T>>,
+    #[props(default, into)] action: FormSubmitProp<T>,
     #[props(default)] loading: Option<Signal<bool>>,
     #[props(default = true)] inline_error: bool,
     children: Element,
@@ -48,6 +48,8 @@ where
     T: FormData + Send + Sync + 'static,
 {
     use crate::form::hook::{FormContext, SetValueFn, SubmitFn, TouchFieldFn};
+
+    let action = action.0;
 
     let set_value = use_hook(move || {
         CopyValue::new_in_scope(

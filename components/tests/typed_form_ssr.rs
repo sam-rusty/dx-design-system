@@ -38,6 +38,7 @@ struct Address {
 
 fn app() -> Element {
     let form = use_form::<Profile>();
+    let action = use_action(|_: Profile| async { Ok::<(), dioxus::CapturedError>(()) });
     use_hook(move || {
         form.default_values(Profile {
             username: "ada".into(),
@@ -51,7 +52,7 @@ fn app() -> Element {
     });
 
     rsx! {
-        FormProvider { form,
+        FormProvider { form, action,
             Form {
                 TextInput { field: Profile::username }
                 NumberInput { field: Profile::age }

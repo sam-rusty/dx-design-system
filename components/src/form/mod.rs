@@ -23,7 +23,8 @@ pub(crate) mod view;
 pub use aux::{AuxState, OverlayEntry};
 pub use errors::GLOBAL_ERROR;
 pub use hook::{
-    DynamicForm, FieldContext, FormData, FormSubmit, SubmitFn, captured_app_error, use_dynamic_form,
+    DynamicForm, FieldContext, FormData, FormSubmit, FormSubmitProp, SubmitFn, captured_app_error,
+    use_dynamic_form,
 };
 pub use typed::view::*;
 pub use typed::{BoundField, FieldHandle, Form, Lens, LensExt, TypedFormData, use_form};

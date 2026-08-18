@@ -8,7 +8,7 @@ mod action;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub use action::{FormSubmit, SubmitFn, captured_app_error};
+pub use action::{FormSubmit, FormSubmitProp, SubmitFn, captured_app_error};
 use dioxus::prelude::*;
 use ds_utils::DsError;
 use ds_utils::format::snake_to_title;

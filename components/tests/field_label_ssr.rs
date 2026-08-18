@@ -27,8 +27,9 @@ impl FormSchema for LoginForm {
 
 fn app() -> Element {
     let form = use_dynamic_form::<LoginForm>();
+    let action = use_action(|_: LoginForm| async { Ok::<(), dioxus::CapturedError>(()) });
     rsx! {
-        FormProvider { form,
+        FormProvider { form, action,
             ds_components::form::dynamic::Form {
                 TextInput { field: Field::new("username", "Username", true, FieldType::String) }
                 PasswordInput { field: Field::new("password", "Password", true, FieldType::String) }

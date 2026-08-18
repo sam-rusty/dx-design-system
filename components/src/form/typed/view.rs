@@ -15,7 +15,7 @@ use super::form::{Form as FormStore, TypedFormData};
 use crate::checkbox::CheckboxRow;
 use crate::copyable::copy_to_clipboard;
 use crate::form::view::{BoundInput, FormFieldWrapper, TypedKind};
-use crate::form::{FieldContext, FieldLabel, FormSubmit, SubmitFn};
+use crate::form::{FieldContext, FieldLabel, FormSubmitProp, SubmitFn};
 use crate::icon::{Icon, IconName};
 use crate::input::{FieldSize, InputType};
 use crate::select::{SelectControl, SelectOption};
@@ -38,7 +38,7 @@ pub struct FormContext {
 #[component]
 pub fn FormProvider<T>(
     form: FormStore<T>,
-    #[props(default)] action: Option<FormSubmit<T>>,
+    #[props(default, into)] action: FormSubmitProp<T>,
     #[props(default)] loading: Option<Signal<bool>>,
     #[props(default = true)] inline_error: bool,
     children: Element,
@@ -46,6 +46,7 @@ pub fn FormProvider<T>(
 where
     T: TypedFormData + Send + Sync + 'static,
 {
+    let action = action.0;
     let submit = action.map(|action| {
         use_hook(move || {
             CopyValue::new_in_scope(

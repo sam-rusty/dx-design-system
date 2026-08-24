@@ -145,7 +145,7 @@ pub fn Popover(
                         role: "dialog",
                         "data-side": side.data_side(),
                         style: "position: fixed; top: {top}px; left: {left}px;",
-                        class: "z-[9999] rounded-xl bg-popover text-popover-foreground p-3 border border-border shadow-lg transition-all duration-150 {origin} {visibility} {extra}",
+                        class: "z-[9999] rounded-xl bg-popover text-popover-foreground p-3 border border-border shadow-lg transition-[opacity,transform] duration-150 {origin} {visibility} {extra}",
                         onmounted: move |_e| {
                             #[cfg(target_arch = "wasm32")]
                             if let Some(panel) = _e.downcast::<web_sys::Element>() {

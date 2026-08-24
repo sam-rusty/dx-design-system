@@ -13,7 +13,7 @@ pub fn EmptyState(
 ) -> Element {
     match icon {
         Some(name) => {
-            let wrapper = merge(&["flex flex-col items-center gap-3 text-center", &class]);
+            let wrapper = merge(&["flex flex-col items-center gap-3 text-center py-2", &class]);
             rsx! {
                 div { class: "{wrapper}",
                     div { class: "flex items-center justify-center size-14 rounded-full bg-muted/60 mx-auto",

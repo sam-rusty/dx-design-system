@@ -2,9 +2,9 @@ use dioxus::prelude::*;
 
 use crate::hooks::{FocusState, use_focus_control, use_focus_entry_disabled, use_focus_provider};
 
-const SEG_ACTIVE: &str = "relative z-10 flex flex-1 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium text-foreground transition-colors duration-150";
-const SEG_DISABLED: &str = "relative z-10 flex flex-1 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground opacity-50 cursor-not-allowed transition-colors duration-150";
-const SEG_IDLE: &str = "relative z-10 flex flex-1 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors duration-150 cursor-pointer";
+const SEG_ACTIVE: &str = "relative z-10 flex flex-1 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium text-foreground whitespace-nowrap transition-colors duration-150";
+const SEG_DISABLED: &str = "relative z-10 flex flex-1 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap opacity-50 cursor-not-allowed transition-colors duration-150";
+const SEG_IDLE: &str = "relative z-10 flex flex-1 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap hover:text-foreground transition-colors duration-150 cursor-pointer";
 
 /// Shared, `Copy` context — `FocusState`/`EventHandler` aren't `PartialEq`, so
 /// they can't be component props; the items read them from here instead.

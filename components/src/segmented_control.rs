@@ -2,9 +2,9 @@ use dioxus::prelude::*;
 
 use crate::hooks::{FocusState, use_focus_control, use_focus_entry_disabled, use_focus_provider};
 
-const SEG_ACTIVE: &str = "relative z-10 flex flex-1 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium text-foreground whitespace-nowrap transition-colors duration-150";
-const SEG_DISABLED: &str = "relative z-10 flex flex-1 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap opacity-50 cursor-not-allowed transition-colors duration-150";
-const SEG_IDLE: &str = "relative z-10 flex flex-1 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap hover:text-foreground transition-colors duration-150 cursor-pointer";
+const SEG_ACTIVE: &str = "relative z-10 flex items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium text-foreground whitespace-nowrap transition-colors duration-150";
+const SEG_DISABLED: &str = "relative z-10 flex items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap opacity-50 cursor-not-allowed transition-colors duration-150";
+const SEG_IDLE: &str = "relative z-10 flex items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap hover:text-foreground transition-colors duration-150 cursor-pointer";
 
 /// Shared, `Copy` context — `FocusState`/`EventHandler` aren't `PartialEq`, so
 /// they can't be component props; the items read them from here instead.
@@ -36,25 +36,20 @@ pub fn SegmentedControl(
     });
     let active_index = options.iter().position(|(ov, _)| *ov == value);
     let any_active = active_index.is_some();
-    let indicator_style = active_index.map(|active_index| {
-        let option_count = options.len();
-        let total_gap_px = option_count.saturating_sub(1) * 2;
-        let active_gap_px = active_index * 2;
-
-        format!(
-            "width: calc((100% - 4px - {total_gap_px}px) / {option_count}); transform: translateX(calc({}% + {active_gap_px}px));",
-            active_index * 100
-        )
-    });
+    // The grid's auto-sized columns share spare width while still honoring each
+    // label's intrinsic width. Placing the indicator in the active button's
+    // cell keeps both surfaces aligned even when labels have different lengths.
+    let indicator_style =
+        active_index.map(|active_index| format!("grid-column: {}; grid-row: 1;", active_index + 1));
 
     rsx! {
         div {
-            class: "relative isolate flex rounded-lg border border-border bg-muted/40 p-0.5 gap-0.5",
+            class: "relative isolate grid grid-flow-col rounded-lg border border-border bg-muted/40 p-0.5 gap-0.5",
             role: "radiogroup",
             if let Some(indicator_style) = indicator_style {
                 div {
                     "aria-hidden": "true",
-                    class: "pointer-events-none absolute top-0.5 bottom-0.5 left-0.5 rounded-md bg-card shadow-sm transition-transform duration-200 ease-out will-change-transform",
+                    class: "pointer-events-none rounded-md bg-card shadow-sm",
                     style: "{indicator_style}",
                 }
             }
@@ -99,6 +94,7 @@ fn SegmentItem(
 
     let value_click = value.clone();
     let mut focus = ctx.focus;
+    let grid_column = index + 1;
 
     rsx! {
         button {
@@ -107,6 +103,7 @@ fn SegmentItem(
             "aria-checked": "{active}",
             tabindex: if roving_tab { "0" } else { "-1" },
             class: btn_class,
+            style: "grid-column: {grid_column}; grid-row: 1;",
             disabled,
             onmounted: on_mounted,
             onclick: move |_| {

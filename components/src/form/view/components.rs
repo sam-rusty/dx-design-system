@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{Alert, AlertVariant};
 use dioxus::prelude::*;
-use ds_utils::format::merge;
+use ds_utils::format::{PhoneFormat, merge};
 
 use super::use_field_binding;
 use crate::copyable::copy_to_clipboard;
@@ -13,7 +13,8 @@ use crate::icon::{Icon, IconName};
 use crate::input::{FieldSize, InputBase, InputType};
 use crate::input_types::{
     EmailInputBase, NumberInputBase, PasswordInputBase, PercentageInputBase,
-    PercentageInputBaseProps, PhoneInputBase, TextInputBase, TypedInputBaseProps,
+    PercentageInputBaseProps, PhoneInputBase, PhoneInputBaseProps, TextInputBase,
+    TypedInputBaseProps,
 };
 use crate::label::Label;
 use crate::separator::Separator;
@@ -304,7 +305,9 @@ pub(crate) enum TypedKind {
     Custom(InputType),
     Text,
     Email,
-    Phone,
+    Phone {
+        format: PhoneFormat,
+    },
     Number,
     Percentage {
         min: f64,
@@ -385,9 +388,30 @@ pub(crate) fn BoundInput(
         TypedKind::Email => rsx! {
             EmailInputBase { ..base }
         },
-        TypedKind::Phone => rsx! {
-            PhoneInputBase { ..base }
-        },
+        TypedKind::Phone { format } => {
+            let props = PhoneInputBaseProps {
+                value: base.value,
+                default_value: base.default_value,
+                on_value_change: base.on_value_change,
+                on_commit: base.on_commit,
+                on_blur: base.on_blur,
+                on_key_down: base.on_key_down,
+                disabled: base.disabled,
+                size: base.size,
+                class: base.class,
+                placeholder: base.placeholder,
+                id: base.id,
+                autofocus: base.autofocus,
+                unstyled: base.unstyled,
+                aria_invalid: base.aria_invalid,
+                aria_describedby: base.aria_describedby,
+                format,
+                attributes: base.attributes,
+            };
+            rsx! {
+                PhoneInputBase { ..props }
+            }
+        }
         TypedKind::Number => rsx! {
             NumberInputBase { ..base }
         },
@@ -482,9 +506,63 @@ pub fn EmailInput(props: TypedInputProps) -> Element {
     typed_form_input(props, TypedKind::Email)
 }
 
-/// Form-bound phone input (formatted display, raw digits in the form value).
-pub fn PhoneInput(props: TypedInputProps) -> Element {
-    typed_form_input(props, TypedKind::Phone)
+/// Props for [`PhoneInput`]: [`TypedInputProps`] plus the country format.
+#[derive(Props, Clone, PartialEq)]
+pub struct PhoneInputProps {
+    /// The bound form field.
+    #[props(into)]
+    pub field: Field,
+    /// Show the copy-to-clipboard action.
+    #[props(default)]
+    pub copyable: bool,
+    /// Show the clear action.
+    #[props(default)]
+    pub clearable: bool,
+    /// Autofocus on mount.
+    #[props(default)]
+    pub autofocus: bool,
+    /// Visual size (shared [`FieldSize`] scale).
+    #[props(default)]
+    pub size: FieldSize,
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+    /// Extra classes merged onto the field wrapper.
+    #[props(default)]
+    pub class: String,
+    /// Display format, as a pattern whose `#` are national digits — e.g.
+    /// `format: "+44 #### ######"`. Pass a list for a country with several
+    /// number lengths (`format: &["+49 ### #######", "+49 ### ########"]`) and
+    /// the tightest fitting one is used. Defaults to [`PhoneFormat::US`].
+    #[props(default, into)]
+    pub format: PhoneFormat,
+}
+
+/// Form-bound phone input (formatted display, raw national digits in the form
+/// value).
+pub fn PhoneInput(props: PhoneInputProps) -> Element {
+    let PhoneInputProps {
+        field,
+        copyable,
+        clearable,
+        autofocus,
+        size,
+        tooltip,
+        class,
+        format,
+    } = props;
+    typed_form_input(
+        TypedInputProps {
+            field,
+            copyable,
+            clearable,
+            autofocus,
+            size,
+            tooltip,
+            class,
+        },
+        TypedKind::Phone { format },
+    )
 }
 
 /// Form-bound numeric input (thousands-separated display, raw decimal value).

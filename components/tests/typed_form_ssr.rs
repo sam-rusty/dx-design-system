@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 use components::form::{
-    Checkbox, Form, FormProvider, LensExt, NumberInput, Select, TextInput, use_form,
+    Checkbox, Form, FormProvider, LensExt, NumberInput, PhoneInput, Select, TextInput, use_form,
 };
 use components::{FormFields, FormOptions};
 
@@ -26,6 +26,8 @@ struct Profile {
     username: String,
     age: Option<i32>,
     newsletter: bool,
+    phone: String,
+    landline: String,
     plan: Option<Plan>,
     #[validate(nested)]
     address: Address,
@@ -44,6 +46,8 @@ fn app() -> Element {
             username: "ada".into(),
             age: None,
             newsletter: true,
+            phone: "7911123456".into(),
+            landline: "15112345678".into(),
             plan: Some(Plan::Pro),
             address: Address {
                 city: "London".into(),
@@ -57,6 +61,13 @@ fn app() -> Element {
                 TextInput { field: Profile::username }
                 NumberInput { field: Profile::age }
                 Checkbox { field: Profile::newsletter }
+                // A caller-supplied format pattern, straight off a string literal.
+                PhoneInput { field: Profile::phone, format: "+44 #### ######" }
+                // Several patterns: the tightest one the number fits in wins.
+                PhoneInput {
+                    field: Profile::landline,
+                    format: &["+49 ### #######", "+49 ### ########"],
+                }
                 Select { field: Profile::plan, options: Plan::OPTIONS }
                 TextInput { field: form.field(Profile::address.then(Address::city)) }
             }
@@ -101,6 +112,20 @@ fn typed_fields_render_prefilled_values() {
     assert!(
         !html.contains(r#"value="0""#),
         "pristine/None number stays blank"
+    );
+}
+
+#[test]
+fn phone_input_renders_the_callers_format_pattern() {
+    let html = render_app();
+
+    assert!(
+        html.contains(r#"value="+44 7911 123456""#),
+        "phone renders in the pattern the call site supplied, not the US default"
+    );
+    assert!(
+        html.contains(r#"value="+49 151 12345678""#),
+        "11 digits pick the longer of the two patterns, not the first listed"
     );
 }
 

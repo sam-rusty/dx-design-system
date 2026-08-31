@@ -5,8 +5,8 @@
 use dioxus::prelude::*;
 
 use ds_utils::format::{
-    clamp_percent, filter_percent, format_number, format_percent, format_phone, parse_number,
-    parse_percent, parse_phone,
+    PhoneFormat, clamp_percent, filter_percent, format_number, format_percent, format_phone_with,
+    parse_number, parse_percent, parse_phone_with,
 };
 
 use crate::hooks::use_controlled;
@@ -70,17 +70,50 @@ pub struct TypedInputBaseProps {
     pub attributes: Vec<Attribute>,
 }
 
+/// The raw ↔ display transform pair of one typed base. A variant rather than
+/// two function pointers so a transform can carry its own configuration.
+#[derive(Clone, Copy)]
+enum Transform {
+    /// Display is the raw value.
+    None,
+    /// A fixed format/parse pair (number, percentage).
+    Fns {
+        /// raw → display (applied when rendering).
+        format: fn(&str) -> String,
+        /// display → raw (applied to every input/change event).
+        parse: fn(&str) -> String,
+    },
+    /// Phone, formatted for the caller's country.
+    Phone(PhoneFormat),
+}
+
+impl Transform {
+    fn format(self, raw: &str) -> String {
+        match self {
+            Self::None => raw.to_string(),
+            Self::Fns { format, .. } => format(raw),
+            Self::Phone(format) => format_phone_with(raw, format),
+        }
+    }
+
+    fn parse(self, display: String) -> String {
+        match self {
+            Self::None => display,
+            Self::Fns { parse, .. } => parse(&display),
+            Self::Phone(format) => parse_phone_with(&display, format),
+        }
+    }
+}
+
 /// Type-specific behavior of one typed base: HTML type, soft-keyboard hint,
 /// and the display/raw transforms.
 #[derive(Clone, Copy)]
 struct TypedBehavior {
     r#type: InputType,
     inputmode: Option<&'static str>,
-    /// raw → display (applied when rendering).
-    format: Option<fn(&str) -> String>,
-    /// display → raw (applied to every input/change event).
-    parse: Option<fn(&str) -> String>,
-    /// Keystroke filter applied before `parse`.
+    /// raw ↔ display.
+    transform: Transform,
+    /// Keystroke filter applied before `transform`'s parse.
     filter: Option<fn(&str) -> String>,
 }
 
@@ -89,8 +122,7 @@ impl TypedBehavior {
         Self {
             r#type,
             inputmode: None,
-            format: None,
-            parse: None,
+            transform: Transform::None,
             filter: None,
         }
     }
@@ -100,10 +132,7 @@ impl TypedBehavior {
             Some(f) => f(&input),
             None => input,
         };
-        match self.parse {
-            Some(p) => p(&filtered),
-            None => filtered,
-        }
+        self.transform.parse(filtered)
     }
 }
 
@@ -122,13 +151,8 @@ fn TypedInput<M: Fn(String) -> String + Copy + 'static>(
         props.on_value_change,
     );
 
-    let display: ReadSignal<Option<String>> = use_memo(move || {
-        Some(match behavior.format {
-            Some(f) => f(&raw()),
-            None => raw(),
-        })
-    })
-    .into();
+    let display: ReadSignal<Option<String>> =
+        use_memo(move || Some(behavior.transform.format(&raw()))).into();
 
     let on_commit = props.on_commit;
 
@@ -180,17 +204,113 @@ pub fn EmailInputBase(props: TypedInputBaseProps) -> Element {
     TypedInput(props, TypedBehavior::plain(InputType::Email), None, |v| v)
 }
 
-/// Phone input (`type="tel"`): displays the formatted number, propagates the
-/// raw digits.
-pub fn PhoneInputBase(props: TypedInputBaseProps) -> Element {
+/// Props for [`PhoneInputBase`]: [`TypedInputBaseProps`] plus the country
+/// display format.
+#[derive(Props, Clone, PartialEq)]
+pub struct PhoneInputBaseProps {
+    /// Controlled raw value. `Some` makes the caller the source of truth
+    /// (pair with `on_value_change`); `None` leaves the input uncontrolled.
+    #[props(default)]
+    pub value: ReadSignal<Option<String>>,
+    /// Initial raw value when uncontrolled.
+    #[props(default)]
+    pub default_value: String,
+    /// Fired with the new raw (national digits) value on every input event.
+    #[props(default)]
+    pub on_value_change: Callback<String>,
+    /// Fired with the committed raw value on the change event (blur / Enter).
+    #[props(default)]
+    pub on_commit: Callback<String>,
+    /// Fired when the input loses focus.
+    #[props(default)]
+    pub on_blur: Callback<FocusEvent>,
+    /// Fired on keydown.
+    #[props(default)]
+    pub on_key_down: Callback<KeyboardEvent>,
+    /// Whether the input is disabled.
+    #[props(default)]
+    pub disabled: ReadSignal<bool>,
+    /// Visual size (shared [`FieldSize`] scale).
+    #[props(default)]
+    pub size: FieldSize,
+    /// Extra classes merged into the base style; the full class list when `unstyled`.
+    #[props(default)]
+    pub class: String,
+    /// Placeholder text.
+    #[props(default)]
+    pub placeholder: Option<String>,
+    /// DOM id. Form bindings set this to the field name so labels target it.
+    #[props(default)]
+    pub id: Option<String>,
+    /// Autofocus on mount (deferred by `AutofocusGate` when one is provided).
+    #[props(default)]
+    pub autofocus: bool,
+    /// Skip the built-in styling entirely; `class` is used verbatim.
+    #[props(default)]
+    pub unstyled: bool,
+    /// `aria-invalid` value (form bindings set `"true"` on validation failure).
+    #[props(default)]
+    pub aria_invalid: Option<String>,
+    /// `aria-describedby` target (the field's error element id).
+    #[props(default)]
+    pub aria_describedby: Option<String>,
+    /// Display format, as a pattern whose `#` are national digits
+    /// (`"+44 #### ######"`), or a list of them for a country with several
+    /// number lengths. Defaults to [`PhoneFormat::US`].
+    #[props(default, into)]
+    pub format: PhoneFormat,
+    /// Additional attributes (`name`, `readonly`, ...).
+    #[props(extends = GlobalAttributes, extends = input)]
+    pub attributes: Vec<Attribute>,
+}
+
+/// Phone input (`type="tel"`): displays the number in `format`'s format,
+/// propagates the raw national digits.
+pub fn PhoneInputBase(props: PhoneInputBaseProps) -> Element {
+    let PhoneInputBaseProps {
+        value,
+        default_value,
+        on_value_change,
+        on_commit,
+        on_blur,
+        on_key_down,
+        disabled,
+        size,
+        class,
+        placeholder,
+        id,
+        autofocus,
+        unstyled,
+        aria_invalid,
+        aria_describedby,
+        format,
+        attributes,
+    } = props;
     let behavior = TypedBehavior {
         r#type: InputType::Tel,
         inputmode: Some("tel"),
-        format: Some(format_phone),
-        parse: Some(parse_phone),
+        transform: Transform::Phone(format),
         filter: None,
     };
-    TypedInput(props, behavior, None, |v| v)
+    let inner = TypedInputBaseProps {
+        value,
+        default_value,
+        on_value_change,
+        on_commit,
+        on_blur,
+        on_key_down,
+        disabled,
+        size,
+        class,
+        placeholder,
+        id,
+        autofocus,
+        unstyled,
+        aria_invalid,
+        aria_describedby,
+        attributes,
+    };
+    TypedInput(inner, behavior, None, |v| v)
 }
 
 /// Numeric input: thousands-separated display, raw decimal string value,
@@ -199,8 +319,10 @@ pub fn NumberInputBase(props: TypedInputBaseProps) -> Element {
     let behavior = TypedBehavior {
         r#type: InputType::Text,
         inputmode: Some("decimal"),
-        format: Some(format_number),
-        parse: Some(parse_number),
+        transform: Transform::Fns {
+            format: format_number,
+            parse: parse_number,
+        },
         filter: Some(filter_numeric),
     };
     TypedInput(props, behavior, None, |v| v)
@@ -292,8 +414,10 @@ pub fn PercentageInputBase(props: PercentageInputBaseProps) -> Element {
     let behavior = TypedBehavior {
         r#type: InputType::Text,
         inputmode: Some("decimal"),
-        format: Some(format_percent),
-        parse: Some(parse_percent),
+        transform: Transform::Fns {
+            format: format_percent,
+            parse: parse_percent,
+        },
         filter: Some(filter_percent),
     };
     let inner = TypedInputBaseProps {
@@ -422,8 +546,10 @@ mod tests {
         let behavior = TypedBehavior {
             r#type: InputType::Text,
             inputmode: Some("decimal"),
-            format: Some(format_number),
-            parse: Some(parse_number),
+            transform: Transform::Fns {
+                format: format_number,
+                parse: parse_number,
+            },
             filter: Some(filter_numeric),
         };
         let raw = "1234567.89";
@@ -431,17 +557,30 @@ mod tests {
         assert_eq!(behavior.normalize(display), raw);
     }
 
-    #[test]
-    fn phone_behavior_normalize_round_trips_formatted_input() {
-        let behavior = TypedBehavior {
+    fn phone_behavior(format: PhoneFormat) -> TypedBehavior {
+        TypedBehavior {
             r#type: InputType::Tel,
             inputmode: Some("tel"),
-            format: Some(format_phone),
-            parse: Some(parse_phone),
+            transform: Transform::Phone(format),
             filter: None,
-        };
+        }
+    }
+
+    #[test]
+    fn phone_behavior_normalize_round_trips_formatted_input() {
+        let behavior = phone_behavior(PhoneFormat::default());
         let raw = "5551234567";
-        let display = format_phone(raw);
+        let display = behavior.transform.format(raw);
+        assert_eq!(display, "+1 (555) 123-4567");
+        assert_eq!(behavior.normalize(display), raw);
+    }
+
+    #[test]
+    fn phone_behavior_honors_a_custom_config() {
+        let behavior = phone_behavior(PhoneFormat::new("+44 #### ######"));
+        let raw = "7911123456";
+        let display = behavior.transform.format(raw);
+        assert_eq!(display, "+44 7911 123456");
         assert_eq!(behavior.normalize(display), raw);
     }
 

@@ -184,7 +184,7 @@ pub use input::{AutofocusGate, FieldSize, InputBase, InputType};
 #[cfg(feature = "form")]
 pub use input_types::{
     EmailInputBase, NumberInputBase, PasswordInputBase, PercentageInputBase, PhoneInputBase,
-    TextInputBase, TypedInputBaseProps,
+    PhoneInputBaseProps, TextInputBase, TypedInputBaseProps,
 };
 #[cfg(feature = "form")]
 pub use number_stepper::NumberStepper;

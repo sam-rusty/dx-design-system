@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use ds_utils::format::merge;
+use ds_utils::format::{PhoneFormat, merge};
 
 use super::binding::{BoundField, FieldHandle};
 use super::form::{Form as FormStore, TypedFormData};
@@ -346,9 +346,68 @@ pub fn EmailInput(props: TypedInputProps) -> Element {
     typed_form_input(props, TypedKind::Email)
 }
 
-/// Typed form-bound phone input (formatted display, raw digits stored).
-pub fn PhoneInput(props: TypedInputProps) -> Element {
-    typed_form_input(props, TypedKind::Phone)
+/// Props for [`PhoneInput`]: [`TypedInputProps`] plus the country format.
+#[derive(Props, Clone, PartialEq)]
+pub struct PhoneInputProps {
+    /// The bound form field: a bare lens (`MyForm::name`) or `form.field(...)`.
+    #[props(into)]
+    pub field: FieldHandle,
+    /// Overrides the lens-derived field label.
+    #[props(default)]
+    pub label: Option<String>,
+    /// Show the copy-to-clipboard action.
+    #[props(default)]
+    pub copyable: bool,
+    /// Show the clear action.
+    #[props(default)]
+    pub clearable: bool,
+    /// Autofocus on mount.
+    #[props(default)]
+    pub autofocus: bool,
+    /// Visual size (shared [`FieldSize`] scale).
+    #[props(default)]
+    pub size: FieldSize,
+    /// Help tooltip rendered inline after the label.
+    #[props(default)]
+    pub tooltip: Option<Element>,
+    /// Extra classes merged onto the field wrapper.
+    #[props(default)]
+    pub class: String,
+    /// Display format, as a pattern whose `#` are national digits — e.g.
+    /// `format: "+44 #### ######"`. Pass a list for a country with several
+    /// number lengths (`format: &["+49 ### #######", "+49 ### ########"]`) and
+    /// the tightest fitting one is used. Defaults to [`PhoneFormat::US`].
+    #[props(default, into)]
+    pub format: PhoneFormat,
+}
+
+/// Typed form-bound phone input (formatted display, raw national digits
+/// stored).
+pub fn PhoneInput(props: PhoneInputProps) -> Element {
+    let PhoneInputProps {
+        field,
+        label,
+        copyable,
+        clearable,
+        autofocus,
+        size,
+        tooltip,
+        class,
+        format,
+    } = props;
+    typed_form_input(
+        TypedInputProps {
+            field,
+            label,
+            copyable,
+            clearable,
+            autofocus,
+            size,
+            tooltip,
+            class,
+        },
+        TypedKind::Phone { format },
+    )
 }
 
 /// Typed form-bound numeric input (thousands-separated display, typed number

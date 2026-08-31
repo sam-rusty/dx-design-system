@@ -12,5 +12,5 @@ pub use super::hook::{
 pub use super::view::{
     BareTextInput, BareTextInputProps, EmailInput, FieldActions, FieldLabelProps, Form, FormError,
     FormField, FormProvider, Input, InputProps, MoneyInput, NumberInput, PasswordInput,
-    PercentageInput, PercentageInputProps, PhoneInput, TextInput, TypedInputProps,
+    PercentageInput, PercentageInputProps, PhoneInput, PhoneInputProps, TextInput, TypedInputProps,
 };

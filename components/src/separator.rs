@@ -5,7 +5,6 @@ use ds_utils::format::merge;
 pub enum SeparatorOrientation {
     #[default]
     Horizontal,
-    #[allow(unused)]
     Vertical,
 }
 

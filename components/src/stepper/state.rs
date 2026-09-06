@@ -88,13 +88,28 @@ fn storage_set(_key: &str, _value: &str) {}
 #[cfg(not(target_arch = "wasm32"))]
 fn storage_remove(_key: &str) {}
 
+/// Draft wire format: a JSON object of `field name -> raw string value`. Anything else
+/// (bad JSON, a non-object, non-string values) is treated as "no draft".
+pub(crate) fn parse_persisted(raw: &str) -> Option<HashMap<String, String>> {
+    serde_json::from_str(raw).ok()
+}
+
+pub(crate) fn serialize_persisted(values: &HashMap<String, String>) -> Option<String> {
+    serde_json::to_string(values).ok()
+}
+
+/// The `{key}:step` entry holds the zero-based index of the step to restore.
+pub(crate) fn parse_persisted_step(raw: &str) -> Option<usize> {
+    raw.trim().parse().ok()
+}
+
 pub(crate) fn load_persisted(key: &str) -> Option<HashMap<String, String>> {
     let raw = storage_get(key)?;
-    serde_json::from_str(&raw).ok()
+    parse_persisted(&raw)
 }
 
 pub(crate) fn save_persisted(key: &str, values: &HashMap<String, String>) {
-    if let Ok(json) = serde_json::to_string(values) {
+    if let Some(json) = serialize_persisted(values) {
         storage_set(key, &json);
     }
 }
@@ -102,7 +117,7 @@ pub(crate) fn save_persisted(key: &str, values: &HashMap<String, String>) {
 pub(crate) fn load_persisted_step(key: &str) -> Option<usize> {
     let step_key = format!("{key}:step");
     let raw = storage_get(&step_key)?;
-    raw.parse().ok()
+    parse_persisted_step(&raw)
 }
 
 pub(crate) fn save_persisted_step(key: &str, index: usize) {
@@ -173,13 +188,13 @@ pub trait StepDefinition: StepId + Sized {
 // Public types
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Direction {
     Forward,
     Backward,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StepState {
     Completed,
     Current,
@@ -363,6 +378,13 @@ pub(crate) struct InternalStepInfo<S> {
 
 #[derive(Clone, Copy)]
 pub(crate) struct InternalStepCtx<S: StepId> {
+    /// Scope that owns every signal of this stepper: the provider (`Stepper` / `MultiStepForm`)
+    /// that called [`Self::new`]. Every reader — `Step`, `StepNav`, `StepProgress`, the memos in
+    /// [`use_any_step_ctx`] — is a descendant that consumes the provider's context, so the
+    /// provider scope outlives all of them and the signals are freed on its unmount. `ScopeId::ROOT`
+    /// would also outlive the readers but never frees anything: a route that mounts the wizard
+    /// repeatedly would grow the root store without bound.
+    pub(crate) owner: ScopeId,
     pub(crate) current: Signal<S>,
     pub(crate) steps: Signal<Vec<InternalStepInfo<S>>>,
     pub(crate) completed: Signal<bool>,
@@ -372,16 +394,19 @@ pub(crate) struct InternalStepCtx<S: StepId> {
 }
 
 impl<S: StepId> InternalStepCtx<S> {
+    /// Call from the provider's `use_hook` so the current scope is the provider (see `owner`).
     pub(crate) fn new(initial: S) -> Self {
+        let owner = dioxus::core::current_scope_id();
         let mut initial_visited = HashSet::new();
         initial_visited.insert(initial);
         Self {
-            current: Signal::new_in_scope(initial, ScopeId::ROOT),
-            steps: Signal::new_in_scope(Vec::new(), ScopeId::ROOT),
-            completed: Signal::new_in_scope(false, ScopeId::ROOT),
-            visited: Signal::new_in_scope(initial_visited, ScopeId::ROOT),
-            direction: Signal::new_in_scope(Direction::Forward, ScopeId::ROOT),
-            submitted: Signal::new_in_scope(false, ScopeId::ROOT),
+            owner,
+            current: Signal::new_in_scope(initial, owner),
+            steps: Signal::new_in_scope(Vec::new(), owner),
+            completed: Signal::new_in_scope(false, owner),
+            visited: Signal::new_in_scope(initial_visited, owner),
+            direction: Signal::new_in_scope(Direction::Forward, owner),
+            submitted: Signal::new_in_scope(false, owner),
         }
     }
 
@@ -487,10 +512,12 @@ impl<S: StepId> InternalStepCtx<S> {
     where
         S: StepDefinition,
     {
-        let mut steps = self.steps.write();
-        if steps.iter().any(|si| si.id == info.id) {
+        // `Step` calls this every render; check with `peek` first so an already-registered step
+        // does not take a write (which would mark `steps` dirty and re-run every subscriber).
+        if self.steps.peek().iter().any(|si| si.id == info.id) {
             return;
         }
+        let mut steps = self.steps.write();
         let ordinal = info.id.ordinal();
         let pos = steps
             .iter()
@@ -517,6 +544,9 @@ pub(crate) fn use_any_step_ctx<S: StepId>(
     persist_key: Option<String>,
     clear_form_fn: CopyValue<Box<dyn Fn()>>,
 ) -> AnyStepCtx {
+    // Runs from the provider's body: `internal.owner` is this very scope, and the boxed
+    // callbacks below only capture `internal` (Copy handles into that scope's signals).
+    let owner = internal.owner;
     let visited_idx = use_memo(move || {
         let visited_ids = internal.visited.read().clone();
         internal
@@ -556,16 +586,31 @@ pub(crate) fn use_any_step_ctx<S: StepId>(
             .collect::<Vec<_>>()
     });
 
-    let go_to_fn: Box<dyn Fn(usize)> = Box::new(move |idx: usize| internal.go_to_index(idx));
-    let next_fn: Box<dyn Fn()> = Box::new(move || internal.next());
-    let back_fn: Box<dyn Fn()> = Box::new(move || internal.back());
-    let current_fields_fn: Box<dyn Fn() -> Vec<Field>> =
-        Box::new(move || internal.current_fields());
-    let reset_visited_fn: Box<dyn Fn()> = Box::new(move || {
-        let initial = internal.steps.peek().first().map(|si| si.id);
-        let mut v = internal.visited;
-        v.set(initial.into_iter().collect::<HashSet<_>>());
-    });
+    // The boxed callbacks only capture `internal` (Copy handles), so they are
+    // built once: the provider re-renders on every navigation and a fresh set
+    // per render would pile up until it unmounts.
+    let (go_to_fn, next_fn, back_fn, current_fields_fn, persist_key, reset_visited_fn) =
+        use_hook(move || {
+            let go_to_fn: Box<dyn Fn(usize)> =
+                Box::new(move |idx: usize| internal.go_to_index(idx));
+            let next_fn: Box<dyn Fn()> = Box::new(move || internal.next());
+            let back_fn: Box<dyn Fn()> = Box::new(move || internal.back());
+            let current_fields_fn: Box<dyn Fn() -> Vec<Field>> =
+                Box::new(move || internal.current_fields());
+            let reset_visited_fn: Box<dyn Fn()> = Box::new(move || {
+                let initial = internal.steps.peek().first().map(|si| si.id);
+                let mut v = internal.visited;
+                v.set(initial.into_iter().collect::<HashSet<_>>());
+            });
+            (
+                CopyValue::new_in_scope(go_to_fn, owner),
+                CopyValue::new_in_scope(next_fn, owner),
+                CopyValue::new_in_scope(back_fn, owner),
+                CopyValue::new_in_scope(current_fields_fn, owner),
+                CopyValue::new_in_scope(persist_key, owner),
+                CopyValue::new_in_scope(reset_visited_fn, owner),
+            )
+        });
 
     AnyStepCtx {
         current_index,
@@ -576,12 +621,12 @@ pub(crate) fn use_any_step_ctx<S: StepId>(
         direction: internal.direction,
         steps_info,
         steps_meta,
-        go_to_fn: CopyValue::new_in_scope(go_to_fn, ScopeId::ROOT),
-        next_fn: CopyValue::new_in_scope(next_fn, ScopeId::ROOT),
-        back_fn: CopyValue::new_in_scope(back_fn, ScopeId::ROOT),
-        current_fields_fn: CopyValue::new_in_scope(current_fields_fn, ScopeId::ROOT),
-        persist_key: CopyValue::new_in_scope(persist_key, ScopeId::ROOT),
+        go_to_fn,
+        next_fn,
+        back_fn,
+        current_fields_fn,
+        persist_key,
         clear_form_fn,
-        reset_visited_fn: CopyValue::new_in_scope(reset_visited_fn, ScopeId::ROOT),
+        reset_visited_fn,
     }
 }

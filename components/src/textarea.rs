@@ -5,7 +5,7 @@ use ds_utils::format::merge;
 use crate::field_name::Field;
 use crate::form::use_field_binding;
 use crate::form::view::FormFieldFrame;
-use crate::hooks::use_controlled;
+use crate::hooks::{use_controlled, use_gated_autofocus};
 use crate::input::FieldSize;
 
 on_web! {
@@ -123,7 +123,8 @@ pub struct TextAreaBaseProps {
     /// DOM id. Form bindings set this to the field name so labels target it.
     #[props(default)]
     pub id: Option<String>,
-    /// Autofocus on mount.
+    /// Autofocus on mount (deferred by [`AutofocusGate`](crate::AutofocusGate)
+    /// when one is provided).
     #[props(default)]
     pub autofocus: bool,
     /// Skip the built-in styling entirely; `class` is used verbatim.
@@ -136,7 +137,7 @@ pub struct TextAreaBaseProps {
     #[props(default)]
     pub aria_describedby: Option<String>,
     /// Additional attributes (`rows`, `cols`, `minlength`, `maxlength`,
-    /// `name`, `readonly`, `required`, `autofocus`, ...).
+    /// `name`, `readonly`, `required`, ...).
     #[props(extends = GlobalAttributes, extends = textarea)]
     pub attributes: Vec<Attribute>,
 }
@@ -165,13 +166,15 @@ pub fn TextAreaBase(props: TextAreaBaseProps) -> Element {
     let on_key_down = props.on_key_down;
     let disabled = props.disabled;
 
+    let onmounted = use_gated_autofocus(props.autofocus);
+
     rsx! {
         textarea {
             "data-name": "TextArea",
             class: "{merged_class}",
             placeholder: actual_placeholder,
+            onmounted,
             id: props.id.clone(),
-            autofocus: props.autofocus,
             disabled: disabled(),
             "aria-invalid": props.aria_invalid.clone(),
             "aria-describedby": props.aria_describedby.clone(),
@@ -213,7 +216,7 @@ pub(crate) fn TextAreaControl(
             on_blur: move |_: FocusEvent| touch.call(()),
             disabled: ReadSignal::from(binding.disabled),
             aria_invalid: binding.aria_invalid(),
-            aria_describedby: binding.aria_describedby.clone(),
+            aria_describedby: binding.aria_describedby_when_invalid(),
             autofocus,
             rows,
             cols,

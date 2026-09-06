@@ -7,7 +7,9 @@ use wasm_bindgen::JsCast;
 #[cfg(feature = "web")]
 use super::nav_sliding_indicator::sliding_indicator_style;
 use super::nav_sliding_indicator::{SlidingIndicatorAxis, sliding_indicator_class};
-use crate::hooks::{use_escape_listener, use_outside_dismiss};
+#[cfg(feature = "web")]
+use crate::hooks::use_effect_with_cleanup;
+use crate::hooks::{use_escape_listener_open, use_outside_dismiss};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum NavTabsDirection {
@@ -99,12 +101,17 @@ fn is_path_active(current: &str, path: &str) -> bool {
     }
 }
 
-fn routable_path_only<R: Routable>(route: &R) -> String {
-    let s = route.to_string();
-    match s.split_once('?') {
+/// Strip the query string from a rendered route so it compares against a
+/// pathname.
+fn path_only(rendered: String) -> String {
+    match rendered.split_once('?') {
         Some((p, _)) => p.to_string(),
-        None => s,
+        None => rendered,
     }
+}
+
+fn routable_path_only<R: Routable>(route: &R) -> String {
+    path_only(route.to_string())
 }
 
 /// A single entry in a `NavTabs` list. `R` is the app or feature [`Routable`] (e.g. root `Route`).
@@ -134,6 +141,10 @@ pub fn NavTabs<R: Routable + Clone + PartialEq + 'static>(
     /// Current URL pathname (no query string). Use `ReadSignal::from(use_memo(...))` from the router.
     #[props(default)]
     current_path: Option<ReadSignal<String>>,
+    /// Accessible name for the `nav` landmark (e.g. `"Primary"`), so several
+    /// navs on one page are distinguishable to assistive technology.
+    #[props(default)]
+    aria_label: Option<String>,
 ) -> Element {
     let n = items.len();
     let empty_path = use_signal(String::new);
@@ -142,52 +153,63 @@ pub fn NavTabs<R: Routable + Clone + PartialEq + 'static>(
     let mut label_els = use_signal(|| vec![None::<web_sys::Element>; n]);
     let mut indicator_style = use_signal(|| None::<String>);
 
-    use_effect(move || {
-        let _ = path();
-        #[cfg(feature = "web")]
-        {
-            // Subscribe to nav + label refs so we re-measure after `onmounted` fills them (vertical
-            // stacks often lose a path-only `setTimeout(0)` race vs horizontal row layout).
-            let _ = nav_el();
-            let _ = label_els();
-            let axis = match direction {
-                NavTabsDirection::Horizontal => SlidingIndicatorAxis::Horizontal,
-                NavTabsDirection::Vertical => SlidingIndicatorAxis::Vertical,
+    // Measure after layout settles (`setTimeout(0)`) and again on every window
+    // resize; the cleanup clears the pending tick and the listener before the
+    // next run and on unmount, so the callback can never write `indicator_style`
+    // into a dropped scope.
+    #[cfg(feature = "web")]
+    use_effect_with_cleanup(move || {
+        // Subscribe to nav + label refs so we re-measure after `onmounted` fills them (vertical
+        // stacks often lose a path-only `setTimeout(0)` race vs horizontal row layout).
+        let _ = (path(), nav_el(), label_els());
+        let axis = match direction {
+            NavTabsDirection::Horizontal => SlidingIndicatorAxis::Horizontal,
+            NavTabsDirection::Vertical => SlidingIndicatorAxis::Vertical,
+        };
+        let measure = move || {
+            let path_str = path.peek().clone();
+            let labels = label_els.peek();
+            let style = match (
+                items.iter().position(|it| it.is_active(&path_str)),
+                nav_el.peek().as_ref(),
+            ) {
+                (Some(i), Some(nav)) if i < labels.len() => labels[i]
+                    .as_ref()
+                    .map(|label| sliding_indicator_style(axis, nav, label)),
+                _ => None,
             };
-            let items_ref = items;
-            let path_c = path;
-            let label_els_c = label_els;
-            let nav_el_c = nav_el;
-            let mut indicator_style_c = indicator_style;
-
-            let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
-                let path_str = path_c();
-                let labels = label_els_c();
-                let nav = nav_el_c();
-                let style = match (items_ref.iter().position(|it| it.is_active(&path_str)), nav) {
-                    (Some(i), Some(nav)) if i < labels.len() => labels[i]
-                        .as_ref()
-                        .map(|label| sliding_indicator_style(axis, &nav, label)),
-                    _ => None,
-                };
-                indicator_style_c.set(style);
-            });
-            if let Some(w) = web_sys::window() {
-                let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(
-                    cb.as_ref().unchecked_ref(),
-                    0,
-                );
+            drop(labels);
+            indicator_style.set(style);
+        };
+        let cb = wasm_bindgen::closure::Closure::wrap(Box::new(measure) as Box<dyn FnMut()>);
+        let win = web_sys::window();
+        let handle = win.as_ref().and_then(|w| {
+            w.set_timeout_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), 0)
+                .ok()
+        });
+        if let Some(w) = &win {
+            let _ = w.add_event_listener_with_callback("resize", cb.as_ref().unchecked_ref());
+        }
+        move || {
+            if let Some(w) = &win {
+                if let Some(handle) = handle {
+                    w.clear_timeout_with_handle(handle);
+                }
+                let _ =
+                    w.remove_event_listener_with_callback("resize", cb.as_ref().unchecked_ref());
             }
+            drop(cb);
         }
-        #[cfg(not(feature = "web"))]
-        {
-            let _ = (path(), nav_el(), label_els());
-        }
+    });
+    #[cfg(not(feature = "web"))]
+    use_effect(move || {
+        let _ = (path(), nav_el(), label_els());
     });
 
     rsx! {
         nav {
             class: "{direction.container_class()}",
+            "aria-label": aria_label,
             onmounted: move |e| {
                 #[cfg(feature = "web")]
                 {
@@ -217,6 +239,7 @@ pub fn NavTabs<R: Routable + Clone + PartialEq + 'static>(
                                     key: "{i}",
                                     to: to,
                                     class: tab_class,
+                                    "aria-current": active.then_some("page"),
                                     div { class: "absolute inset-x-1 inset-y-1 rounded-lg bg-secondary opacity-0 transition-opacity group-hover:opacity-100 -z-10" }
                                     span { class: "relative flex flex-col items-center justify-center text-sm pointer-events-none",
                                         span { class: "block font-bold h-0 overflow-hidden invisible", "aria-hidden": "true", "{label_str}" }
@@ -288,7 +311,7 @@ fn NavGroup<R: Routable + Clone + PartialEq + 'static>(
     // Stacked Escape: fires whether focus is on the trigger or inside the open
     // panel, and only closes the top-most overlay (unlike an inline onkeydown on
     // the trigger, which misses panel focus and ignores nesting).
-    use_escape_listener(move || {
+    use_escape_listener_open(open.into(), move || {
         if *open.peek() {
             open.set(false);
         }
@@ -373,6 +396,7 @@ fn NavGroup<R: Routable + Clone + PartialEq + 'static>(
                                     key: "{child_path}",
                                     to: to,
                                     class: child_class.to_string(),
+                                    "aria-current": child_active.then_some("page"),
                                     onclick: move |_| open.set(false),
                                     "{child_label}"
                                 }
@@ -382,5 +406,44 @@ fn NavGroup<R: Routable + Clone + PartialEq + 'static>(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_path_active, path_only};
+
+    #[test]
+    fn exact_and_nested_paths_are_active() {
+        assert!(is_path_active("/events", "/events"));
+        assert!(is_path_active("/events/1", "/events"));
+        assert!(is_path_active("/events/1/edit", "/events"));
+    }
+
+    #[test]
+    fn sibling_prefix_is_not_active() {
+        assert!(!is_path_active("/events-archive", "/events"));
+        assert!(!is_path_active("/eventsx", "/events"));
+        assert!(!is_path_active("/other", "/events"));
+    }
+
+    #[test]
+    fn root_only_matches_root() {
+        assert!(is_path_active("/", "/"));
+        assert!(!is_path_active("/events", "/"));
+        assert!(is_path_active("/", ""));
+    }
+
+    #[test]
+    fn trailing_slash_on_route_is_ignored() {
+        assert!(is_path_active("/events", "/events/"));
+        assert!(is_path_active("/events/1", "/events/"));
+    }
+
+    #[test]
+    fn path_only_strips_query() {
+        assert_eq!(path_only("/events?page=2".into()), "/events");
+        assert_eq!(path_only("/events".into()), "/events");
+        assert_eq!(path_only("/?q=1".into()), "/");
     }
 }

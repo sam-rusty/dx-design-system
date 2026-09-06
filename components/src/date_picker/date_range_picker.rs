@@ -6,21 +6,53 @@ use time::Date;
 use super::panel::{CalendarPanel, PickerFooter, SelectionState};
 use super::shared::{format_display_date, *};
 use crate::calendar::{
-    CalendarState, format_date, format_date_range, format_header_date, parse_date,
-    parse_date_range, today,
+    format_date, format_date_range, format_header_date, parse_date, parse_date_range, today,
+    use_calendar_state,
 };
 use crate::form::use_field_binding;
 use crate::form::view::FormFieldFrame;
-use crate::{Field, InputBase, Modal, ModalSize};
+use crate::{Field, InputBase};
 
 const TAB_ACTIVE: &str = "flex-1 py-2 text-sm font-medium text-primary border-b-2 border-primary cursor-pointer text-center transition-colors";
 
 const TAB_INACTIVE: &str = "flex-1 py-2 text-sm font-medium text-muted-foreground border-b-2 border-transparent hover:text-foreground cursor-pointer text-center transition-colors";
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RangeTab {
     Start,
     End,
+}
+
+/// Apply a day click to the staged range. Picking a start clears an end that
+/// would precede it and moves on to the end tab; picking an "end" before the
+/// current start restarts the range from that day. Returns the new
+/// `(start, end, active_tab)`.
+fn apply_range_pick(
+    tab: RangeTab,
+    start: Option<Date>,
+    end: Option<Date>,
+    picked: Date,
+) -> (Option<Date>, Option<Date>, RangeTab) {
+    match tab {
+        RangeTab::Start => {
+            let end = end.filter(|e| *e >= picked);
+            (Some(picked), end, RangeTab::End)
+        }
+        RangeTab::End => {
+            if start.is_some_and(|s| picked < s) {
+                (Some(picked), None, RangeTab::End)
+            } else {
+                (start, Some(picked), RangeTab::End)
+            }
+        }
+    }
+}
+
+/// What OK commits: both ends, or a single-day range when only the start was
+/// picked. Nothing staged commits nothing.
+fn range_commit(start: Option<Date>, end: Option<Date>) -> Option<(Date, Date)> {
+    let s = start?;
+    Some((s, end.unwrap_or(s)))
 }
 
 #[component]
@@ -37,7 +69,19 @@ pub fn DateRangePickerBase(
     disabled: ReadSignal<bool>,
     #[props(default)] min: Option<Signal<WireDate>>,
     #[props(default)] max: Option<Signal<WireDate>>,
-    #[props(default)] is_open: Option<Signal<bool>>,
+    /// Shared open state; setting it to `true` externally opens the dialog
+    /// with fresh staging state.
+    #[props(default)]
+    is_open: Option<Signal<bool>>,
+    /// DOM id for the trigger (targeted by the field label).
+    #[props(default)]
+    id: Option<String>,
+    /// `aria-invalid` for the trigger.
+    #[props(default)]
+    aria_invalid: Option<String>,
+    /// `aria-describedby` for the trigger (the field's error element).
+    #[props(default)]
+    aria_describedby: Option<String>,
 ) -> Element {
     let default_is_open = use_signal(|| false);
     let mut is_open_sig = is_open.unwrap_or(default_is_open);
@@ -54,7 +98,7 @@ pub fn DateRangePickerBase(
     let parsed_range = use_memo(move || parse_date_range(&current_value()));
 
     let cal_state =
-        CalendarState::new((*parsed_range.peek()).map(|(s, _)| s).unwrap_or_else(today));
+        use_calendar_state((*parsed_range.peek()).map(|(s, _)| s).unwrap_or_else(today));
 
     let mut staging_start: Signal<Option<Date>> = use_signal(|| None);
     let mut staging_end: Signal<Option<Date>> = use_signal(|| None);
@@ -67,19 +111,7 @@ pub fn DateRangePickerBase(
     let min_date = use_memo(move || min.map(|s| s().into_inner()));
     let max_date = use_memo(move || max.map(|s| s().into_inner()));
 
-    let is_date_disabled = move |date: Date| -> bool {
-        if let Some(mn) = min_date()
-            && date < mn
-        {
-            return true;
-        }
-        if let Some(mx) = max_date()
-            && date > mx
-        {
-            return true;
-        }
-        false
-    };
+    let is_date_disabled = move |date: Date| out_of_range(date, min_date(), max_date());
 
     let display_value = use_memo(move || {
         let val = current_value();
@@ -91,6 +123,21 @@ pub fn DateRangePickerBase(
                 .unwrap_or(val)
         }
     });
+
+    let reset = use_callback(move |_: ()| {
+        if let Some((s, e)) = *parsed_range.peek() {
+            staging_start.set(Some(s));
+            staging_end.set(Some(e));
+            cal_state.navigate_to(&s);
+        } else {
+            staging_start.set(None);
+            staging_end.set(None);
+            cal_state.navigate_to(&today());
+        }
+        active_tab.set(RangeTab::Start);
+        input_mode.set(false);
+    });
+    let open = use_open_reset(is_open_sig, reset);
 
     let trigger_class = merge(&[TRIGGER_CLASS, &class]);
     let is_open_val = is_open_sig();
@@ -107,15 +154,16 @@ pub fn DateRangePickerBase(
         }
     };
 
-    let start_tab_class = if active_tab() == RangeTab::Start {
+    let start_active = active_tab() == RangeTab::Start;
+    let start_tab_class = if start_active {
         TAB_ACTIVE
     } else {
         TAB_INACTIVE
     };
-    let end_tab_class = if active_tab() == RangeTab::End {
-        TAB_ACTIVE
-    } else {
+    let end_tab_class = if start_active {
         TAB_INACTIVE
+    } else {
+        TAB_ACTIVE
     };
 
     let start_tab_label = (*staging_start.read())
@@ -129,146 +177,119 @@ pub fn DateRangePickerBase(
 
     rsx! {
         div { "data-name": "DateRangePicker", class: "relative w-full",
-            button {
-                r#type: "button",
-                class: "{trigger_class}",
+            PickerTrigger {
+                class: trigger_class,
+                display: display_value(),
                 disabled: disabled(),
-                "data-state": if is_open_val { "open" } else { "closed" },
-                onclick: move |ev| {
-                    ev.stop_propagation();
-                    if disabled() { return; }
-                    if let Some((s, e)) = *parsed_range.peek() {
-                        staging_start.set(Some(s));
-                        staging_end.set(Some(e));
-                        cal_state.navigate_to(&s);
-                    } else {
-                        staging_start.set(None);
-                        staging_end.set(None);
-                        cal_state.navigate_to(&today());
-                    }
-                    active_tab.set(RangeTab::Start);
-                    input_mode.set(false);
-                    is_open_sig.set(true);
-                },
-                span { class: "truncate", "{display_or_nbsp(display_value())}" }
+                is_open: is_open_val,
+                id,
+                aria_invalid,
+                aria_describedby,
+                on_open: move |_| open.call(()),
                 CalendarIcon {}
             }
 
             if is_open_val {
-                Modal {
-                    on_close: move || is_open_sig.set(false),
-                    headerless: true,
-                    unpadded: true,
-                    size: ModalSize::Sm,
-                    PickerHeader { title: "Select date range",
-                        div { class: HEADER_DATE, "{header_text}" }
-                        EditToggleButton {
-                            input_mode: input_mode,
-                            on_click: move |_| {
-                                let entering = !*input_mode.peek();
-                                if entering {
-                                    let start_str = (*staging_start.peek())
-                                        .as_ref()
-                                        .map(format_date)
-                                        .unwrap_or_default();
-                                    let end_str = (*staging_end.peek())
-                                        .as_ref()
-                                        .map(format_date)
-                                        .unwrap_or_default();
-                                    input_start.set(start_str);
-                                    input_end.set(end_str);
-                                } else {
-                                    let s = parse_date(&input_start.peek());
-                                    let e = parse_date(&input_end.peek());
-                                    if let Some(sd) = s
-                                        && !is_date_disabled(sd) {
-                                            staging_start.set(Some(sd));
-                                            cal_state.navigate_to(&sd);
-                                        }
-                                    if let Some(ed) = e
-                                        && !is_date_disabled(ed) && s.is_some_and(|sd| ed >= sd) {
-                                            staging_end.set(Some(ed));
-                                        }
+                PickerDialog {
+                    title: "Select date range",
+                    header: header_text,
+                    on_close: move |_| is_open_sig.set(false),
+                    input_mode: Some(input_mode.into()),
+                    on_edit_toggle: move |_| {
+                        let entering = !*input_mode.peek();
+                        if entering {
+                            let start_str = (*staging_start.peek())
+                                .as_ref()
+                                .map(format_date)
+                                .unwrap_or_default();
+                            let end_str = (*staging_end.peek())
+                                .as_ref()
+                                .map(format_date)
+                                .unwrap_or_default();
+                            input_start.set(start_str);
+                            input_end.set(end_str);
+                        } else {
+                            let s = parse_date(&input_start.peek());
+                            let e = parse_date(&input_end.peek());
+                            if let Some(sd) = s
+                                && !is_date_disabled(sd)
+                            {
+                                staging_start.set(Some(sd));
+                                cal_state.navigate_to(&sd);
+                            }
+                            if let Some(ed) = e
+                                && !is_date_disabled(ed)
+                                && s.is_some_and(|sd| ed >= sd)
+                            {
+                                staging_end.set(Some(ed));
+                            }
+                        }
+                        input_mode.set(entering);
+                    },
+                    if input_mode() {
+                        div { class: "flex flex-col gap-4 py-4",
+                            div {
+                                label { class: "block text-xs font-medium text-muted-foreground mb-2", "Start date" }
+                                InputBase {
+                                    placeholder: "YYYY-MM-DD".to_string(),
+                                    value: input_start_read,
+                                    on_value_change: move |v: String| input_start.set(v),
                                 }
-                                input_mode.set(entering);
+                            }
+                            div {
+                                label { class: "block text-xs font-medium text-muted-foreground mb-2", "End date" }
+                                InputBase {
+                                    placeholder: "YYYY-MM-DD".to_string(),
+                                    value: input_end_read,
+                                    on_value_change: move |v: String| input_end.set(v),
+                                }
+                            }
+                        }
+                    } else {
+                        div { class: "flex border-b border-border mb-3", role: "tablist", "aria-label": "Range bound",
+                            button {
+                                r#type: "button",
+                                role: "tab",
+                                "aria-selected": start_active,
+                                class: "{start_tab_class}",
+                                onclick: move |_| active_tab.set(RangeTab::Start),
+                                "{start_tab_label}"
+                            }
+                            button {
+                                r#type: "button",
+                                role: "tab",
+                                "aria-selected": !start_active,
+                                class: "{end_tab_class}",
+                                onclick: move |_| active_tab.set(RangeTab::End),
+                                "{end_tab_label}"
+                            }
+                        }
+                        CalendarPanel {
+                            state: cal_state,
+                            selection: selection,
+                            on_day_click: move |date: Date| {
+                                let (s, e, tab) = apply_range_pick(
+                                    *active_tab.peek(),
+                                    *staging_start.peek(),
+                                    *staging_end.peek(),
+                                    date,
+                                );
+                                staging_start.set(s);
+                                staging_end.set(e);
+                                active_tab.set(tab);
                             },
+                            min_date: min_date(),
+                            max_date: max_date(),
                         }
                     }
-                    div { class: "p-4",
-                        if input_mode() {
-                            div { class: "flex flex-col gap-4 py-4",
-                                div {
-                                    label { class: "block text-xs font-medium text-muted-foreground mb-2", "Start date" }
-                                    InputBase {
-                                        placeholder: "YYYY-MM-DD".to_string(),
-                                        value: input_start_read,
-                                        on_value_change: move |v: String| input_start.set(v),
-                                    }
-                                }
-                                div {
-                                    label { class: "block text-xs font-medium text-muted-foreground mb-2", "End date" }
-                                    InputBase {
-                                        placeholder: "YYYY-MM-DD".to_string(),
-                                        value: input_end_read,
-                                        on_value_change: move |v: String| input_end.set(v),
-                                    }
-                                }
+                    PickerFooter {
+                        on_cancel: move |_| is_open_sig.set(false),
+                        on_confirm: move |_| {
+                            if let Some((s, e)) = range_commit(*staging_start.peek(), *staging_end.peek()) {
+                                on_value_change.call(format_date_range(&s, &e));
                             }
-                        } else {
-                            div { class: "flex border-b border-border mb-3",
-                                button {
-                                    r#type: "button",
-                                    class: "{start_tab_class}",
-                                    onclick: move |_| active_tab.set(RangeTab::Start),
-                                    "{start_tab_label}"
-                                }
-                                button {
-                                    r#type: "button",
-                                    class: "{end_tab_class}",
-                                    onclick: move |_| active_tab.set(RangeTab::End),
-                                    "{end_tab_label}"
-                                }
-                            }
-                            CalendarPanel {
-                                state: cal_state,
-                                selection: selection,
-                                on_day_click: move |date: Date| {
-                                    let tab = *active_tab.peek();
-                                    match tab {
-                                        RangeTab::Start => {
-                                            staging_start.set(Some(date));
-                                            if staging_end.peek().is_some_and(|e| e < date) {
-                                                staging_end.set(None);
-                                            }
-                                            active_tab.set(RangeTab::End);
-                                        }
-                                        RangeTab::End => {
-                                            if staging_start.peek().is_some_and(|s| date < s) {
-                                                staging_start.set(Some(date));
-                                                staging_end.set(None);
-                                                active_tab.set(RangeTab::End);
-                                            } else {
-                                                staging_end.set(Some(date));
-                                            }
-                                        }
-                                    }
-                                },
-                                min_date: min_date(),
-                                max_date: max_date(),
-                            }
-                        }
-                        PickerFooter {
-                            on_cancel: move |_| is_open_sig.set(false),
-                            on_confirm: move |_| {
-                                let start = *staging_start.peek();
-                                let end = *staging_end.peek();
-                                if let (Some(s), Some(e)) = (start, end) {
-                                    let formatted = format_date_range(&s, &e);
-                                    on_value_change.call(formatted);
-                                }
-                                is_open_sig.set(false);
-                            },
-                        }
+                            is_open_sig.set(false);
+                        },
                     }
                 }
             }
@@ -328,12 +349,8 @@ pub(crate) fn DateRangePickerControl(
     let form_disabled = binding.disabled;
     let is_disabled: ReadSignal<bool> = use_memo(move || disabled() || form_disabled()).into();
 
-    let has_min = min.is_some();
-    let has_max = max.is_some();
-    let min_sig = use_signal(|| min.unwrap_or_default());
-    let max_sig = use_signal(|| max.unwrap_or_default());
-    let min_opt = has_min.then_some(min_sig);
-    let max_opt = has_max.then_some(max_sig);
+    let min_opt = use_optional_signal(min);
+    let max_opt = use_optional_signal(max);
 
     rsx! {
         DateRangePickerBase {
@@ -343,6 +360,83 @@ pub(crate) fn DateRangePickerControl(
             is_open: open,
             min: min_opt,
             max: max_opt,
+            id: binding.id.clone(),
+            aria_invalid: binding.aria_invalid(),
+            aria_describedby: binding.aria_describedby_when_invalid(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn date(y: i32, m: u8, d: u8) -> Date {
+        Date::from_calendar_date(y, time::Month::try_from(m).unwrap(), d).unwrap()
+    }
+
+    #[test]
+    fn pick_start_then_end_in_order() {
+        let (s, e, tab) = apply_range_pick(RangeTab::Start, None, None, date(2026, 3, 1));
+        assert_eq!((s, e, tab), (Some(date(2026, 3, 1)), None, RangeTab::End));
+        let (s, e, tab) = apply_range_pick(tab, s, e, date(2026, 3, 15));
+        assert_eq!(
+            (s, e, tab),
+            (
+                Some(date(2026, 3, 1)),
+                Some(date(2026, 3, 15)),
+                RangeTab::End
+            )
+        );
+    }
+
+    #[test]
+    fn picking_start_after_end_clears_end() {
+        let (s, e, tab) = apply_range_pick(
+            RangeTab::Start,
+            Some(date(2026, 3, 1)),
+            Some(date(2026, 3, 10)),
+            date(2026, 3, 20),
+        );
+        assert_eq!((s, e, tab), (Some(date(2026, 3, 20)), None, RangeTab::End));
+    }
+
+    #[test]
+    fn picking_start_before_end_keeps_end() {
+        let (s, e, _) = apply_range_pick(
+            RangeTab::Start,
+            Some(date(2026, 3, 5)),
+            Some(date(2026, 3, 10)),
+            date(2026, 3, 2),
+        );
+        assert_eq!((s, e), (Some(date(2026, 3, 2)), Some(date(2026, 3, 10))));
+    }
+
+    #[test]
+    fn picking_end_before_start_restarts_range() {
+        let (s, e, tab) = apply_range_pick(
+            RangeTab::End,
+            Some(date(2026, 3, 10)),
+            Some(date(2026, 3, 12)),
+            date(2026, 3, 4),
+        );
+        assert_eq!((s, e, tab), (Some(date(2026, 3, 4)), None, RangeTab::End));
+    }
+
+    #[test]
+    fn picking_end_equal_to_start_is_a_single_day_range() {
+        let d = date(2026, 3, 10);
+        let (s, e, _) = apply_range_pick(RangeTab::End, Some(d), None, d);
+        assert_eq!((s, e), (Some(d), Some(d)));
+    }
+
+    #[test]
+    fn commit_rules() {
+        let s = date(2026, 3, 1);
+        let e = date(2026, 3, 9);
+        assert_eq!(range_commit(None, None), None);
+        assert_eq!(range_commit(None, Some(e)), None);
+        assert_eq!(range_commit(Some(s), None), Some((s, s)));
+        assert_eq!(range_commit(Some(s), Some(e)), Some((s, e)));
     }
 }

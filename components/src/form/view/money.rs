@@ -95,7 +95,7 @@ pub(crate) fn MoneyControl(
         autofocus,
         unstyled: true,
         aria_invalid: binding.aria_invalid(),
-        aria_describedby: Some(binding.aria_describedby.clone()),
+        aria_describedby: binding.aria_describedby_when_invalid(),
         attributes: Vec::new(),
     };
     rsx! {

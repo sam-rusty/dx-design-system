@@ -8,6 +8,7 @@ use dioxus::prelude::*;
 
 use crate::form::FieldContext;
 use crate::form::hook::FormContext;
+use crate::form::typed::BoundField;
 
 /// Controlled-prop bundle adapting the surrounding form to any base component:
 /// reactive value / invalid / disabled reads plus write-back callbacks.
@@ -34,6 +35,15 @@ pub struct FieldBinding {
     pub on_commit: Callback<String>,
     /// Mark the field touched (blur).
     pub touch: Callback<()>,
+    /// Current validation message (reactive; `None` while clean or untouched
+    /// under the typed flavour's lazy validation).
+    pub error: Memo<Option<String>>,
+    /// Whether the field holds a non-empty value (reactive).
+    pub has_value: Memo<bool>,
+    /// Reset the field. Typed forms return the field to pristine (value,
+    /// touched and error cleared); the dynamic form writes an empty value and
+    /// keeps the touched state so a required error shows immediately.
+    pub clear: Callback<()>,
 }
 
 impl FieldBinding {
@@ -41,6 +51,39 @@ impl FieldBinding {
     pub fn aria_invalid(&self) -> Option<String> {
         self.invalid.read().then(|| "true".to_string())
     }
+
+    /// `aria-describedby` pointing at the field's error element, emitted only
+    /// while that element renders (the field is invalid).
+    pub fn aria_describedby_when_invalid(&self) -> Option<String> {
+        self.invalid.read().then(|| self.aria_describedby.clone())
+    }
+}
+
+/// Touched/error snapshot of the surrounding field under either flavour,
+/// read fresh each render (no hooks, so callers may branch before it).
+pub(crate) struct FieldErrorState {
+    pub path: String,
+    pub touched: bool,
+    pub error: Option<String>,
+}
+
+pub(crate) fn field_error_state() -> Option<FieldErrorState> {
+    if let Some(bound) = try_consume_context::<Signal<BoundField>>() {
+        let bound = bound.read();
+        return Some(FieldErrorState {
+            path: bound.path().to_string(),
+            touched: bound.is_touched(),
+            error: bound.error(),
+        });
+    }
+    let field_ctx = try_consume_context::<FieldContext>()?;
+    let form_ctx = try_consume_context::<FormContext>()?;
+    let name = field_ctx.name;
+    Some(FieldErrorState {
+        touched: form_ctx.aux.with(|a| a.is_touched(&name)),
+        error: form_ctx.aux.with(|a| a.error(&name)),
+        path: String::from(&*name),
+    })
 }
 
 pub fn use_field_binding() -> FieldBinding {
@@ -48,7 +91,7 @@ pub fn use_field_binding() -> FieldBinding {
     // context; adapt it to the same string-shaped binding. The branch is
     // stable for a control instance's lifetime (it mounts under one form
     // flavor), so hook order is consistent.
-    if let Some(bound) = try_use_context::<Signal<crate::form::typed::BoundField>>() {
+    if let Some(bound) = try_use_context::<Signal<BoundField>>() {
         return use_typed_field_binding(bound);
     }
 
@@ -90,6 +133,22 @@ pub fn use_field_binding() -> FieldBinding {
         let name = name.clone();
         move |_: ()| form_ctx.touch_field.read()(&name)
     });
+    let error = {
+        let name = name.clone();
+        use_memo(move || form_ctx.aux.with(|a| a.error(&name)))
+    };
+    let has_value = {
+        let name = name.clone();
+        use_memo(move || {
+            form_ctx
+                .values_signal
+                .with(|v| v.get(&*name).is_some_and(|s| !s.is_empty()))
+        })
+    };
+    let clear = use_callback({
+        let name = name.clone();
+        move |_: ()| form_ctx.set_value.read()(&name, String::new())
+    });
 
     FieldBinding {
         id: String::from(&*name),
@@ -102,15 +161,20 @@ pub fn use_field_binding() -> FieldBinding {
         on_value_change,
         on_commit,
         touch,
+        error,
+        has_value,
+        clear,
     }
 }
 
 /// Adapts a typed-form [`crate::form::typed::BoundField`] (provided as a
 /// signal so row re-keys propagate) to the string-shaped [`FieldBinding`]
 /// every control consumes.
-fn use_typed_field_binding(bound: Signal<crate::form::typed::BoundField>) -> FieldBinding {
+fn use_typed_field_binding(bound: Signal<BoundField>) -> FieldBinding {
     let form_ctx = try_use_context::<crate::form::typed::view::FormContext>();
-    let name: Arc<str> = Arc::from(bound.peek().path());
+    // Tracked read: a row re-key swaps the binding in place and the control
+    // must re-render with the new id / describedby.
+    let name: Arc<str> = Arc::from(bound.read().path());
 
     let value = use_memo(move || bound.read().display());
     let invalid = use_memo(move || bound.read().invalid());
@@ -124,6 +188,9 @@ fn use_typed_field_binding(bound: Signal<crate::form::typed::BoundField>) -> Fie
     let on_value_change = use_callback(move |v: String| bound.peek().set_text(&v));
     let on_commit = use_callback(move |v: String| bound.peek().commit_text(&v));
     let touch = use_callback(move |_: ()| bound.peek().touch());
+    let error = use_memo(move || bound.read().error());
+    let has_value = use_memo(move || bound.read().has_value());
+    let clear = use_callback(move |_: ()| bound.peek().clear());
 
     FieldBinding {
         id: String::from(&*name),
@@ -136,5 +203,8 @@ fn use_typed_field_binding(bound: Signal<crate::form::typed::BoundField>) -> Fie
         on_value_change,
         on_commit,
         touch,
+        error,
+        has_value,
+        clear,
     }
 }

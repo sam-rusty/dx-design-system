@@ -1,6 +1,25 @@
 use dioxus::prelude::*;
 use ds_utils::format::merge;
 
+/// Active-dot class as a literal so `stepper::view` can `concat!` its transition onto it.
+macro_rules! dot_active {
+    () => {
+        "h-1.5 w-6 rounded-full bg-primary"
+    };
+}
+pub(crate) use dot_active;
+
+/// Dot classes shared with `StepProgressVariant::Dots` (`stepper/view.rs`).
+pub(crate) const DOT_ACTIVE: &str = dot_active!();
+pub(crate) const DOT_ACTIVE_FAILED: &str = "h-1.5 w-6 rounded-full bg-destructive";
+macro_rules! dot_inactive {
+    () => {
+        "h-1.5 w-1.5 rounded-full bg-muted"
+    };
+}
+pub(crate) use dot_inactive;
+pub(crate) const DOT_INACTIVE: &str = dot_inactive!();
+
 /// Marker for step-enum identity. Blanket-implemented; you never write this by hand.
 /// (Named `StepKey` to avoid colliding with the multi-step-form `StepId`.)
 pub trait StepKey: Copy + PartialEq + Eq + std::hash::Hash + Send + Sync + 'static {}
@@ -63,20 +82,27 @@ pub fn StepDots<S: StepMeta>(
     let active = current.ordinal();
     let container = merge(&["flex items-center justify-center gap-1.5", &class]);
     rsx! {
-        div { class: container,
+        div {
+            "data-name": "StepDots",
+            class: container,
+            role: "list",
+            "aria-label": "Progress",
             for i in 0..S::COUNT {
                 {
-                    let dot = if i == active {
-                        if failed {
-                            "h-1.5 w-6 rounded-full bg-destructive"
-                        } else {
-                            "h-1.5 w-6 rounded-full bg-primary"
-                        }
+                    let is_active = i == active;
+                    let dot = if is_active {
+                        if failed { DOT_ACTIVE_FAILED } else { DOT_ACTIVE }
                     } else {
-                        "h-1.5 w-1.5 rounded-full bg-muted"
+                        DOT_INACTIVE
                     };
                     rsx! {
-                        div { key: "{i}", class: dot }
+                        div {
+                            key: "{i}",
+                            role: "listitem",
+                            "aria-label": "Step {i + 1}",
+                            "aria-current": if is_active { "step" },
+                            class: dot,
+                        }
                     }
                 }
             }

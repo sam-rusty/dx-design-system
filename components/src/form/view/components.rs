@@ -2,13 +2,17 @@ use std::sync::Arc;
 
 use crate::{Alert, AlertVariant};
 use dioxus::prelude::*;
+use ds_utils::DsError;
 use ds_utils::format::{PhoneFormat, merge};
 
+use super::binding::field_error_state;
 use super::use_field_binding;
 use crate::copyable::copy_to_clipboard;
 use crate::field_name::Field;
 use crate::form::hook::FormContext;
-use crate::form::{DynamicForm, FieldContext, FormData, FormSubmitProp, GLOBAL_ERROR};
+use crate::form::{
+    DynamicForm, FieldContext, FormData, FormSubmit, FormSubmitProp, GLOBAL_ERROR, SubmitFn,
+};
 use crate::icon::{Icon, IconName};
 use crate::input::{FieldSize, InputBase, InputType};
 use crate::input_types::{
@@ -37,6 +41,69 @@ pub(crate) fn LabelHint(tooltip: Element) -> Element {
     }
 }
 
+/// Submit/disabled wiring shared by both `FormProvider`s.
+pub(crate) struct ActionWiring {
+    /// `Some` when an `action` or `loading` source exists.
+    pub disabled: Option<Memo<bool>>,
+    /// `Some` when an `action` exists.
+    pub submit: Option<CopyValue<SubmitFn>>,
+}
+
+/// Derives the disabled flag and the submit closure from the provider props,
+/// and feeds a failed action result into `on_server_error`.
+///
+/// Hooks run unconditionally (no `Option::map(use_hook)`), so a prop flipping
+/// between `None` and `Some` across renders cannot shift hook indices. The
+/// props they capture go through a compare-and-set signal so a `Some -> Some`
+/// change of `action`/`loading` reaches the memo and closures; `FormContext`
+/// itself is provided once, so a `None <-> Some` flip does not update
+/// `ctx.disabled`/`ctx.submit` (pre-existing, no consumer relies on it).
+/// Everything is owned by the provider scope (`CopyValue::new`), not
+/// `ScopeId::ROOT`.
+pub(crate) fn use_action_wiring<T: 'static>(
+    action: Option<FormSubmit<T>>,
+    loading: Option<Signal<bool>>,
+    inline_error: bool,
+    run_submit: impl Fn(FormSubmit<T>) + 'static,
+    on_server_error: impl Fn(DsError) + 'static,
+) -> ActionWiring {
+    let mut sources = use_signal(|| (action, loading, inline_error));
+    if *sources.peek() != (action, loading, inline_error) {
+        sources.set((action, loading, inline_error));
+    }
+
+    let submit = use_hook(move || {
+        CopyValue::new(Box::new(move || {
+            if let Some(action) = sources.peek().0 {
+                run_submit(action);
+            }
+        }) as SubmitFn)
+    });
+
+    use_effect(move || {
+        let (action, _, inline_error) = *sources.read();
+        if inline_error && let Some(Some(Err(err))) = action.map(|a| a.result()) {
+            on_server_error(err);
+        }
+    });
+
+    // Precedence: a submit `action`'s `pending()` wins; otherwise the explicit
+    // `loading` signal.
+    let disabled = use_memo(move || {
+        let (action, loading, _) = *sources.read();
+        match (action, loading) {
+            (Some(action), _) => action.pending(),
+            (None, Some(sig)) => sig(),
+            (None, None) => false,
+        }
+    });
+
+    ActionWiring {
+        disabled: (action.is_some() || loading.is_some()).then_some(disabled),
+        submit: action.is_some().then_some(submit),
+    }
+}
+
 #[component]
 pub fn FormProvider<T>(
     form: DynamicForm<T>,
@@ -48,55 +115,27 @@ pub fn FormProvider<T>(
 where
     T: FormData + Send + Sync + 'static,
 {
-    use crate::form::hook::{FormContext, SetValueFn, SubmitFn, TouchFieldFn};
-
-    let action = action.0;
+    use crate::form::hook::{FormContext, SetValueFn, TouchFieldFn};
 
     let set_value = use_hook(move || {
-        CopyValue::new_in_scope(
-            Box::new(move |field: &str, value: String| {
-                form.set_string_value(field, value);
-            }) as SetValueFn,
-            ScopeId::ROOT,
-        )
+        CopyValue::new(Box::new(move |field: &str, value: String| {
+            form.set_string_value(field, value);
+        }) as SetValueFn)
     });
 
     let touch_field = use_hook(move || {
-        CopyValue::new_in_scope(
-            Box::new(move |field: &str| {
-                form.touch_field(field);
-            }) as TouchFieldFn,
-            ScopeId::ROOT,
-        )
+        CopyValue::new(Box::new(move |field: &str| {
+            form.touch_field(field);
+        }) as TouchFieldFn)
     });
 
-    let submit = action.map(|action| {
-        use_hook(move || {
-            CopyValue::new_in_scope(
-                Box::new(move || {
-                    form.submit(move |data| action.call(data));
-                }) as SubmitFn,
-                ScopeId::ROOT,
-            )
-        })
-    });
-
-    use_effect(move || {
-        if inline_error && let Some(Some(Err(err))) = action.map(|a| a.result()) {
-            form.set_server_error(err);
-        }
-    });
-
-    // Derive the disabled flag reactively instead of mirroring a prop into a signal
-    // via `use_effect`. Precedence is unchanged: a submit `action`'s `pending()`
-    // wins when present; otherwise an explicit `loading` signal is used. Both are
-    // read through a `use_memo` so re-renders track them directly (aligns with
-    // `use_controlled` semantics).
-    let disabled: Option<Memo<bool>> = match (action, loading) {
-        (Some(action), _) => Some(use_memo(move || action.pending())),
-        (None, Some(sig)) => Some(use_memo(move || sig())),
-        (None, None) => None,
-    };
+    let ActionWiring { disabled, submit } = use_action_wiring(
+        action.0,
+        loading,
+        inline_error,
+        move |action| form.submit(move |data| action.call(data)),
+        move |err| form.set_server_error(err),
+    );
 
     let ctx = FormContext {
         values_signal: form.values_signal,
@@ -112,35 +151,34 @@ where
 
     rsx! {
         {children}
-
     }
 }
 
-#[component]
-pub fn Form(
-    #[props(default)] class: String,
-    #[props(default)] on_submit: Option<EventHandler<FormEvent>>,
+/// The `<form>` element shared by both flavours: submit wiring, disabled
+/// fieldset, global error alert. No `action` attribute — `prevent_default`
+/// handles submission and an inline `javascript:` URL trips CSP.
+pub(crate) fn form_element(
+    disabled: Option<Memo<bool>>,
+    submit: Option<CopyValue<SubmitFn>>,
+    global_error: Option<String>,
+    class: String,
+    on_submit: Option<EventHandler<FormEvent>>,
     children: Element,
 ) -> Element {
-    let ctx = use_context::<FormContext>();
     let merged_class = merge(&["w-full", &class]);
-
-    let is_disabled = ctx.disabled.map(|d| d()).unwrap_or(false);
-
-    let global_error = ctx.aux.with(|a| a.error(GLOBAL_ERROR));
+    let is_disabled = disabled.map(|d| d()).unwrap_or(false);
 
     rsx! {
         form {
             class: "{merged_class}",
-            action: "javascript:void(0);",
             onsubmit: move |ev| {
                 ev.prevent_default();
-                if ctx.disabled.map(|d| d()).unwrap_or(false) {
+                if disabled.map(|d| d()).unwrap_or(false) {
                     return;
                 }
                 if let Some(cb) = &on_submit {
                     cb.call(ev);
-                } else if let Some(mut submit) = ctx.submit {
+                } else if let Some(mut submit) = submit {
                     (submit.write())();
                 }
             },
@@ -154,6 +192,24 @@ pub fn Form(
             }
         }
     }
+}
+
+#[component]
+pub fn Form(
+    #[props(default)] class: String,
+    #[props(default)] on_submit: Option<EventHandler<FormEvent>>,
+    children: Element,
+) -> Element {
+    let ctx = use_context::<FormContext>();
+    let global_error = ctx.aux.with(|a| a.error(GLOBAL_ERROR));
+    form_element(
+        ctx.disabled,
+        ctx.submit,
+        global_error,
+        class,
+        on_submit,
+        children,
+    )
 }
 
 #[component]
@@ -185,9 +241,21 @@ pub fn FormField(field: Field, children: Element) -> Element {
     use_context_provider(|| FieldContext {
         name: field_name.clone(),
     });
+    // The `field` prop changed under the same instance (re-key): refresh the
+    // context for descendants that read it per render and retarget the
+    // drop-time step unregister. Controls memoise their binding by name, so a
+    // re-keyed dynamic control needs a `key` to remount.
+    let current = use_signal(|| field_name.clone());
+    if *current.peek() != field_name {
+        let old = std::mem::replace(&mut *current.write_unchecked(), field_name.clone());
+        unregister_auto_field(&old);
+        provide_context(FieldContext {
+            name: field_name.clone(),
+        });
+    }
 
     use_drop(move || {
-        unregister_auto_field(&field_name);
+        unregister_auto_field(&current.peek());
     });
 
     let ctx = use_context::<FormContext>();
@@ -221,7 +289,8 @@ pub struct FieldLabelProps {
 /// control. Dims when the form is disabled; the error state is carried by the
 /// control border + `FormError`, not the label color.
 pub fn FieldLabel(props: FieldLabelProps) -> Element {
-    let field_ctx = try_use_context::<FieldContext>();
+    // Read fresh each render: a re-keyed `FormField` re-provides the context.
+    let field_ctx = try_consume_context::<FieldContext>();
 
     let field_name = if props.html_for.is_empty() {
         field_ctx
@@ -359,7 +428,7 @@ pub(crate) fn BoundInput(
         // `input_class` is always complete — never merge the standalone base.
         unstyled: true,
         aria_invalid: binding.aria_invalid(),
-        aria_describedby: Some(binding.aria_describedby.clone()),
+        aria_describedby: binding.aria_describedby_when_invalid(),
         attributes: Vec::new(),
     };
 
@@ -752,21 +821,18 @@ pub fn FormSeparator(
     }
 }
 
-/// Small copy + clear action buttons positioned inside a field wrapper.
-/// Reads the current value from `FormContext` via `FieldContext`.
+/// Copy + clear action buttons for the surrounding `FormField` (either
+/// flavour, via [`use_field_binding`]). Hidden while the field is empty.
 #[component]
 pub fn FieldActions(
     #[props(default)] copyable: bool,
     #[props(default)] clearable: bool,
     #[props(default)] class: String,
 ) -> Element {
-    let field_ctx = use_context::<FieldContext>();
-    let field_name = field_ctx.name.clone();
-    let form_ctx = use_context::<FormContext>();
-
-    let has_value = form_ctx
-        .values_signal
-        .with(|v| v.get(&*field_name).is_some_and(|s| !s.is_empty()));
+    let binding = use_field_binding();
+    let has_value = (binding.has_value)();
+    let value = binding.value;
+    let clear = binding.clear;
 
     let copied = use_signal(|| false);
 
@@ -774,7 +840,6 @@ pub fn FieldActions(
         "absolute end-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 z-10",
         &class,
     ]);
-
     let container_style = if has_value { "" } else { "display:none" };
 
     let copy_icon = if copied() {
@@ -792,18 +857,10 @@ pub fn FieldActions(
                     tabindex: -1,
                     title: "{copy_title}",
                     class: "p-1.5 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors cursor-pointer",
-                    onclick: {
-                        let field_name = field_name.clone();
-                        move |_| {
-                            let val = form_ctx
-                                .values_signal
-                                .peek()
-                                .get(&*field_name)
-                                .cloned()
-                                .unwrap_or_default();
-                            if !val.is_empty() {
-                                copy_to_clipboard(val, copied);
-                            }
+                    onclick: move |_| {
+                        let val = value.peek().clone();
+                        if !val.is_empty() {
+                            copy_to_clipboard(val, copied);
                         }
                     },
                     Icon { name: copy_icon, class: "size-3.5" }
@@ -815,12 +872,7 @@ pub fn FieldActions(
                     tabindex: -1,
                     title: "Clear",
                     class: "p-1.5 rounded-md text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer",
-                    onclick: {
-                        let field_name = field_name.clone();
-                        move |_| {
-                            form_ctx.set_value.read()(&field_name, String::new());
-                        }
-                    },
+                    onclick: move |_| clear.call(()),
                     Icon { name: IconName::X, class: "size-3.5" }
                 }
             }
@@ -828,6 +880,9 @@ pub fn FieldActions(
     }
 }
 
+/// Inline error for the surrounding `FormField` (either flavour), shown once
+/// the field is touched; or an explicit message via `children` / `errors`.
+/// `role="alert"` is assertive on its own — no `aria-live` override.
 #[component]
 pub fn FormError(
     #[props(default)] class: String,
@@ -841,43 +896,31 @@ pub fn FormError(
     }
 
     if let Some(errors) = errors {
-        if errors.is_empty() {
+        let Some(first) = errors.first().cloned() else {
             return rsx! {};
-        }
-        let first = errors.first().cloned().unwrap_or_default();
+        };
         let err_class = merge(&["text-destructive text-xs font-medium ml-1 mt-1", &class]);
         return rsx! {
-            div { role: "alert", "aria-live": "polite", class: "{err_class}",
+            div { role: "alert", class: "{err_class}",
                 span { "{first}" }
             }
         };
     }
 
-    let field_ctx = try_use_context::<FieldContext>();
-    let form_ctx = try_use_context::<FormContext>();
-
-    if let (Some(field_ctx), Some(ctx)) = (field_ctx, form_ctx) {
-        let field_name = field_ctx.name.clone();
-        let is_touched = ctx.aux.with(|a| a.is_touched(&field_name));
-        let error = ctx.aux.with(|a| a.error(&field_name));
-
-        if !is_touched {
-            return rsx! {};
-        }
-        if let Some(err) = error {
-            let err_class = merge(&["text-destructive text-xs font-medium ml-1 mt-1", &class]);
-            let err_id = format!("{}-error", &*field_name);
-            return rsx! {
-                div {
-                    role: "alert",
-                    "aria-live": "polite",
-                    id: "{err_id}",
-                    class: "{err_class}",
-                    span { "{err}" }
-                }
-            };
+    let Some(state) = field_error_state() else {
+        return rsx! {};
+    };
+    if !state.touched {
+        return rsx! {};
+    }
+    let Some(err) = state.error else {
+        return rsx! {};
+    };
+    let err_class = merge(&["text-destructive text-xs font-medium ml-1 mt-1", &class]);
+    let err_id = format!("{}-error", state.path);
+    rsx! {
+        div { role: "alert", id: "{err_id}", class: "{err_class}",
+            span { "{err}" }
         }
     }
-
-    rsx! {}
 }

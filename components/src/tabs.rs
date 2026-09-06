@@ -65,7 +65,10 @@ pub fn Tabs(
     let (current, set_current) = use_controlled(prop, initial, on_change_cb);
     let current_key = current();
 
-    use_focus_provider(use_signal(|| true).into());
+    let mut focus = use_focus_provider(use_signal(|| true).into());
+    // Mutated only in the web-gated `onmounted` below.
+    #[allow(unused_mut)]
+    let mut tablist_el = use_signal(|| None::<web_sys::Element>);
     let base_id = use_unique_id();
     let base = base_id.peek().clone();
 
@@ -78,7 +81,38 @@ pub fn Tabs(
 
     rsx! {
         div {
-            div { class: strip_class, role: "tablist",
+            div {
+                class: strip_class,
+                role: "tablist",
+                onmounted: move |e| {
+                    #[cfg(feature = "web")]
+                    if let Some(el) = e.downcast::<web_sys::Element>() {
+                        tablist_el.set(Some(el.clone()));
+                    }
+                    #[cfg(not(feature = "web"))]
+                    let _ = (&e, &tablist_el);
+                },
+                // Clear the roving-focus slot when focus leaves the tablist, so
+                // tabbing back in lands on the selected tab rather than the last
+                // arrowed-to one.
+                onfocusout: move |e| {
+                    #[cfg(feature = "web")]
+                    {
+                        use wasm_bindgen::JsCast;
+                        let stays_inside = e
+                            .downcast::<web_sys::FocusEvent>()
+                            .and_then(|ev| ev.related_target())
+                            .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
+                            .zip(tablist_el.peek().clone())
+                            .is_some_and(|(target, root)| root.contains(Some(&target)));
+                        if stays_inside {
+                            return;
+                        }
+                    }
+                    #[cfg(not(feature = "web"))]
+                    let _ = &e;
+                    focus.blur();
+                },
                 for (index , item) in items.iter().enumerate() {
                     TabTrigger {
                         key: "{item.key}",
@@ -137,7 +171,8 @@ fn TabTrigger(
             r#type: "button",
             role: "tab",
             id: "{tab_id}",
-            "aria-controls": "{panel_id}",
+            // Only the active panel is rendered, so only its tab may reference it.
+            "aria-controls": is_active.then_some(panel_id),
             "aria-selected": if is_active { "true" } else { "false" },
             class,
             disabled,

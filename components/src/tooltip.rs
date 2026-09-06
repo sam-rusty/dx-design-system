@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use ds_utils::format::merge;
 
-use crate::hooks::use_unique_id;
+use crate::hooks::{use_escape_listener_open, use_unique_id};
 use crate::placement::Placement;
 #[cfg(target_arch = "wasm32")]
 use crate::placement::{Anchor, Rect};
@@ -49,6 +49,9 @@ pub fn Tooltip(
         visible.set(false);
         coords.set(None);
     };
+    // WCAG 1.4.13: hover/focus-triggered content must be dismissible without
+    // moving the pointer or focus.
+    use_escape_listener_open(visible.into(), hide);
 
     let root_class = merge(&["relative inline-flex", &class]);
     let (top, left, side) = coords().unwrap_or((0.0, 0.0, placement));
@@ -62,7 +65,8 @@ pub fn Tooltip(
         div {
             class: "{root_class}",
             tabindex: 0,
-            "aria-describedby": panel_id,
+            // Only reference the panel while it exists; a dangling id is noise for AT.
+            "aria-describedby": visible().then(|| panel_id.cloned()),
             onmounted: move |e| {
                 if let Some(el) = e.downcast::<web_sys::Element>() {
                     trigger_el.set(Some(el.clone()));

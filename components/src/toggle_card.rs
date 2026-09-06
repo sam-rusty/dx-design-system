@@ -82,6 +82,10 @@ pub fn Switch(
     #[props(default)] loading: bool,
     #[props(default)] checked_children: Option<Element>,
     #[props(default)] unchecked_children: Option<Element>,
+    /// Additional attributes (`id`, `name`, `aria-label`, `aria-labelledby`, ...)
+    /// so the switch can carry an accessible name.
+    #[props(extends = GlobalAttributes, extends = button)]
+    attributes: Vec<Attribute>,
 ) -> Element {
     let wrapper_class = if checked {
         TOGGLE_WRAPPER_ENABLED
@@ -104,6 +108,7 @@ pub fn Switch(
                     cb.call(!checked);
                 }
             },
+            ..attributes,
             if loading {
                 div { class: "{wrapper_class}",
                     span { class: "absolute inset-0 flex items-center justify-center",

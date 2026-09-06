@@ -128,10 +128,11 @@ struct MockClient {
     children: Option<Vec<MockChild>>,
 }
 
+/// Runs `f` inside the root scope so `Signal::new` (scope-owned) works.
 fn run_with_scope<R>(f: impl FnOnce() -> R) -> R {
     let vdom = VirtualDom::new(|| rsx! {});
     let _guard = RuntimeGuard::new(vdom.runtime());
-    f()
+    vdom.in_scope(ScopeId::ROOT, f)
 }
 
 fn make_form_with_values(values: Vec<(&str, &str)>) -> DynamicForm<MockUser> {
@@ -592,6 +593,149 @@ fn test_form_get_data_with_optional_vec() {
         assert_eq!(children[0].age, 8);
         assert_eq!(children[1].name, "Dana");
         assert_eq!(children[1].age, 5);
+    });
+}
+
+// --- store behaviour: validate_fields / touch / toggle_optional / default_values / reset ---
+
+#[test]
+fn validate_fields_reports_required_empty_and_validate_errors() {
+    run_with_scope(|| {
+        let form = make_form_with_values(vec![("name", "A"), ("age", "1")]);
+        let fields: Vec<Field> = vec![
+            MockUser::name.into(),
+            MockUser::age.into(),
+            MockUser::role.into(),
+        ];
+        assert!(!form.validate_fields(&fields));
+        // `Validate` message for a present value
+        assert_eq!(form.error("name"), Some("Name too short".into()));
+        // required-but-empty for a non-Option field with no value
+        assert_eq!(form.error("role"), Some("Role is required".into()));
+        assert_eq!(form.error("age"), None);
+        assert!(form.is_touched("role"), "validated fields get touched");
+
+        form.set_string_value("name", "Alice".into());
+        form.set_string_value("role", "admin".into());
+        assert!(form.validate_fields(&fields));
+        assert_eq!(form.error("name"), None);
+        assert_eq!(form.error("role"), None);
+    });
+}
+
+#[test]
+fn touch_field_validates_registered_required_field() {
+    run_with_scope(|| {
+        // `role` has no `Validate` rule: only the registry drives its error.
+        let form = DynamicForm::<MockUser>::default();
+        form.touch_field("role");
+        assert_eq!(form.error("role"), None, "unregistered: no required check");
+
+        // `validate_fields` registers the field's required flag.
+        form.validate_fields(&[MockUser::role.into()]);
+        assert_eq!(form.error("role"), Some("Role is required".into()));
+        form.set_string_value("role", "admin".into());
+        assert_eq!(form.error("role"), None, "touched field revalidates on set");
+        form.set_string_value("role", String::new());
+        assert_eq!(form.error("role"), Some("Role is required".into()));
+    });
+}
+
+#[test]
+fn toggle_optional_sets_and_clears_the_subtree() {
+    run_with_scope(|| {
+        let form = DynamicForm::<MockClient>::default();
+        let enabled = Signal::new(false);
+        let toggle = form.toggle_optional(enabled, MockClient::spouse);
+
+        toggle();
+        assert!(*enabled.peek());
+        form.set_string_value("spouse.first_name", "Bob".into());
+        assert_eq!(
+            form.get_data().unwrap().spouse.map(|s| s.first_name),
+            Some("Bob".to_string())
+        );
+
+        toggle();
+        assert!(!*enabled.peek());
+        assert!(
+            !form
+                .values_signal
+                .peek()
+                .keys()
+                .any(|k| k.starts_with("spouse.")),
+            "descendants removed on disable"
+        );
+        assert_eq!(form.get_data().unwrap().spouse, None);
+    });
+}
+
+#[test]
+fn default_values_round_trip_with_arrays() {
+    run_with_scope(|| {
+        let form = DynamicForm::<MockOrder>::default();
+        let order = MockOrder {
+            title: "t".into(),
+            items: vec![
+                MockItem {
+                    name: "a".into(),
+                    qty: 1,
+                },
+                MockItem {
+                    name: "b".into(),
+                    qty: 2,
+                },
+            ],
+        };
+        form.default_values(order.clone());
+        assert_eq!(
+            form.values_signal.peek().get("items.1.name"),
+            Some(&"b".to_string())
+        );
+        assert_eq!(form.get(MockOrder::items.at(1).dot(MockItem::qty)), Some(2));
+        assert_eq!(form.get_data().unwrap(), order);
+    });
+}
+
+#[test]
+fn server_validation_error_uses_bracket_list_keys() {
+    run_with_scope(|| {
+        let form = DynamicForm::<MockOrder>::default();
+        let order = MockOrder {
+            title: "Order".into(),
+            items: vec![
+                MockItem {
+                    name: "ok".into(),
+                    qty: 1,
+                },
+                MockItem {
+                    name: String::new(),
+                    qty: 2,
+                },
+            ],
+        };
+        let errors = order.validate().unwrap_err();
+        form.set_server_error(ds_utils::DsError::Validation("Bad".into(), errors));
+        assert_eq!(form.aux.peek().error(GLOBAL_ERROR), Some("Bad".into()));
+        assert_eq!(
+            form.error("items[1].name"),
+            Some("Item name required".into())
+        );
+        assert!(form.is_touched("items[1].name"));
+        assert_eq!(form.error("items[0].name"), None);
+    });
+}
+
+#[test]
+fn reset_clears_values_touched_and_errors() {
+    run_with_scope(|| {
+        let form = make_form_with_values(vec![("name", "A")]);
+        form.validate_fields(&[MockUser::name.into()]);
+        assert!(form.error("name").is_some());
+        form.reset();
+        assert!(form.values_signal.peek().is_empty());
+        assert_eq!(form.error("name"), None);
+        assert!(!form.is_touched("name"));
     });
 }
 

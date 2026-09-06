@@ -1,4 +1,3 @@
-#![allow(clippy::suspicious_else_formatting)]
 use dioxus::prelude::*;
 use time::Date;
 
@@ -31,45 +30,65 @@ impl SelectionState {
     fn day_state(&self, date: Date, today_date: Date) -> DayState {
         match self {
             SelectionState::Single(selected) => {
-                if selected.read().is_some_and(|s| s == date) {
-                    DayState::Selected
-                } else if date == today_date {
-                    DayState::Today
-                } else {
-                    DayState::Normal
-                }
+                single_day_state(*selected.read(), date, today_date)
             }
             SelectionState::Range { start, end } => {
-                let s = *start.read();
-                let e = *end.read();
-                match (s, e) {
-                    (Some(sv), Some(ev)) if sv == ev && date == sv => DayState::Selected,
-                    (Some(sv), Some(ev)) => {
-                        if date == sv {
-                            DayState::RangeStart
-                        } else if date == ev {
-                            DayState::RangeEnd
-                        } else if date > sv && date < ev {
-                            DayState::InRange
-                        } else if date == today_date {
-                            DayState::Today
-                        } else {
-                            DayState::Normal
-                        }
-                    }
-                    (Some(sv), None) if date == sv => DayState::Selected,
-                    _ => {
-                        if date == today_date {
-                            DayState::Today
-                        } else {
-                            DayState::Normal
-                        }
-                    }
-                }
+                range_day_state(*start.read(), *end.read(), date, today_date)
             }
         }
     }
 }
+
+fn today_or_normal(date: Date, today_date: Date) -> DayState {
+    if date == today_date {
+        DayState::Today
+    } else {
+        DayState::Normal
+    }
+}
+
+fn single_day_state(selected: Option<Date>, date: Date, today_date: Date) -> DayState {
+    if selected == Some(date) {
+        DayState::Selected
+    } else {
+        today_or_normal(date, today_date)
+    }
+}
+
+fn range_day_state(
+    start: Option<Date>,
+    end: Option<Date>,
+    date: Date,
+    today_date: Date,
+) -> DayState {
+    match (start, end) {
+        (Some(sv), Some(ev)) if sv == ev && date == sv => DayState::Selected,
+        (Some(sv), Some(ev)) => {
+            if date == sv {
+                DayState::RangeStart
+            } else if date == ev {
+                DayState::RangeEnd
+            } else if date > sv && date < ev {
+                DayState::InRange
+            } else {
+                today_or_normal(date, today_date)
+            }
+        }
+        (Some(sv), None) if date == sv => DayState::Selected,
+        _ => today_or_normal(date, today_date),
+    }
+}
+
+/// Full weekday names for the single-letter column headers, Sunday first.
+const WEEKDAY_NAMES: [&str; 7] = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+];
 
 const NAV_BTN: &str = "size-9 flex items-center justify-center rounded-full text-foreground hover:bg-secondary transition-colors cursor-pointer";
 const YEAR_BTN: &str = "flex items-center gap-1 text-sm font-medium text-foreground hover:bg-secondary rounded-full px-3 py-1.5 transition-colors cursor-pointer select-none";
@@ -94,7 +113,6 @@ fn ChevronRightIcon() -> Element {
     rsx! { Icon { name: IconName::ChevronRight, class: "size-4" } }
 }
 
-#[allow(clippy::suspicious_else_formatting)]
 #[component]
 pub fn CalendarPanel(
     state: CalendarState,
@@ -132,36 +150,38 @@ fn MonthHeader(state: CalendarState) -> Element {
     let year = state.view_year;
     let month = state.view_month;
     let mut show_year_picker = state.show_year_picker;
+    let chevron_class = if show_year_picker() {
+        "size-4 transition-transform duration-200 rotate-180 inline-flex"
+    } else {
+        "size-4 transition-transform duration-200 inline-flex"
+    };
 
     rsx! {
         div { class: "flex items-center justify-between px-2 mb-2",
             button {
                 r#type: "button",
                 class: YEAR_BTN,
+                "aria-expanded": show_year_picker(),
+                "aria-label": "Choose year",
                 onclick: move |_| {
                     let cur = show_year_picker();
                     show_year_picker.set(!cur);
                 },
                 "{month_name(month())} {year()}"
-                span {
-                    class: if show_year_picker() {
-                        "size-4 transition-transform duration-200 rotate-180 inline-flex"
-                    } else {
-                        "size-4 transition-transform duration-200 inline-flex"
-                    },
-                    ChevronDownIcon {}
-                }
+                span { class: chevron_class, ChevronDownIcon {} }
             }
             div { class: "flex items-center gap-1",
                 button {
                     r#type: "button",
                     class: NAV_BTN,
+                    "aria-label": "Previous month",
                     onclick: move |_| state.go_prev(),
                     ChevronLeftIcon {}
                 }
                 button {
                     r#type: "button",
                     class: NAV_BTN,
+                    "aria-label": "Next month",
                     onclick: move |_| state.go_next(),
                     ChevronRightIcon {}
                 }
@@ -259,11 +279,14 @@ fn DayGrid(
                 }
             },
             Grid { cols: FlexGridCols::C7, gap: FlexGap::None, class: "mb-1",
-                for label in WEEKDAY_LABELS.iter() {
-                    div {
-                        role: "columnheader",
-                        class: "flex items-center justify-center h-9 text-xs font-medium text-muted-foreground",
-                        "{label}"
+                div { role: "row", class: "contents",
+                    for (label , name) in WEEKDAY_LABELS.iter().zip(WEEKDAY_NAMES) {
+                        div {
+                            role: "columnheader",
+                            "aria-label": name,
+                            class: "flex items-center justify-center h-9 text-xs font-medium text-muted-foreground",
+                            "{label}"
+                        }
                     }
                 }
             }
@@ -377,6 +400,7 @@ fn YearGrid(state: CalendarState) -> Element {
                             button {
                                 r#type: "button",
                                 class: "{cls}",
+                                "aria-pressed": is_selected,
                                 onclick: move |_| state.set_year(y),
                                 "{y}"
                             }
@@ -412,6 +436,113 @@ pub fn PickerFooter(on_cancel: EventHandler<()>, on_confirm: EventHandler<()>) -
 mod tests {
 
     use super::*;
+    use crate::calendar::use_calendar_state;
+
+    fn date(y: i32, m: u8, d: u8) -> Date {
+        Date::from_calendar_date(y, time::Month::try_from(m).unwrap(), d).unwrap()
+    }
+
+    fn render(app: fn() -> Element) -> String {
+        let mut dom = dioxus::dioxus_core::VirtualDom::new(app);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    }
+
+    fn panel_app() -> Element {
+        let selected = use_signal(|| Some(date(2026, 3, 10)));
+        let state = use_calendar_state(date(2026, 3, 1));
+        rsx! {
+            CalendarPanel {
+                state,
+                selection: SelectionState::Single(selected.into()),
+                on_day_click: move |_| {},
+                min_date: date(2026, 3, 3),
+                max_date: date(2026, 3, 28),
+            }
+        }
+    }
+
+    /// SSR pin (the panel only renders inside a `Modal`, which the server
+    /// omits, so it is pinned here rather than in `components/tests`).
+    #[test]
+    fn calendar_panel_grid_semantics() {
+        let html = render(panel_app);
+        assert_eq!(html.matches(r#"role="row""#).count(), 7, "header + 6 weeks");
+        assert_eq!(html.matches(r#"role="columnheader""#).count(), 7);
+        assert!(html.contains(r#"aria-label="Sunday""#));
+        assert_eq!(html.matches(r#"role="gridcell""#).count(), 42);
+        // SSR emits bool attributes unquoted.
+        assert_eq!(html.matches("aria-selected=true").count(), 1, "{html}");
+        assert!(html.contains(r#"aria-label="Previous month""#));
+        assert!(html.contains(r#"aria-label="Next month""#));
+        assert!(html.contains("aria-expanded=false"));
+        // March 2026 starts on a Sunday: 31 in-month days, 2 before `min`
+        // and 3 after `max` are disabled, plus the 11 out-of-month cells.
+        assert_eq!(html.matches("disabled=true").count(), 2 + 3 + 11, "{html}");
+        assert!(html.contains(r#"aria-label="March 10, 2026""#));
+    }
+
+    #[test]
+    fn single_day_state_matrix() {
+        let today = date(2026, 3, 10);
+        let sel = date(2026, 3, 12);
+        assert_eq!(single_day_state(None, today, today), DayState::Today);
+        assert_eq!(single_day_state(None, sel, today), DayState::Normal);
+        assert_eq!(single_day_state(Some(sel), sel, today), DayState::Selected);
+        assert_eq!(single_day_state(Some(sel), today, today), DayState::Today);
+        // Selection wins over today.
+        assert_eq!(
+            single_day_state(Some(today), today, today),
+            DayState::Selected
+        );
+    }
+
+    #[test]
+    fn range_day_state_matrix() {
+        let today = date(2026, 3, 10);
+        let s = date(2026, 3, 5);
+        let e = date(2026, 3, 15);
+        // Nothing staged.
+        assert_eq!(range_day_state(None, None, today, today), DayState::Today);
+        assert_eq!(range_day_state(None, None, s, today), DayState::Normal);
+        // Start only.
+        assert_eq!(range_day_state(Some(s), None, s, today), DayState::Selected);
+        assert_eq!(
+            range_day_state(Some(s), None, today, today),
+            DayState::Today
+        );
+        assert_eq!(range_day_state(Some(s), None, e, today), DayState::Normal);
+        // Full range.
+        assert_eq!(
+            range_day_state(Some(s), Some(e), s, today),
+            DayState::RangeStart
+        );
+        assert_eq!(
+            range_day_state(Some(s), Some(e), e, today),
+            DayState::RangeEnd
+        );
+        assert_eq!(
+            range_day_state(Some(s), Some(e), today, today),
+            DayState::InRange
+        );
+        assert_eq!(
+            range_day_state(Some(s), Some(e), date(2026, 3, 1), today),
+            DayState::Normal
+        );
+        assert_eq!(
+            range_day_state(Some(s), Some(e), date(2026, 3, 20), date(2026, 3, 20)),
+            DayState::Today
+        );
+        // Single-day range.
+        assert_eq!(
+            range_day_state(Some(s), Some(s), s, today),
+            DayState::Selected
+        );
+        assert_eq!(
+            range_day_state(Some(s), Some(s), today, today),
+            DayState::Today
+        );
+    }
 
     #[test]
     fn day_cell_class_not_in_month_returns_invisible() {

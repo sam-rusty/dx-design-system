@@ -14,21 +14,30 @@ pub fn format_header_date(date: &Date) -> String {
 
 /// Parse a calendar date from `s`.
 ///
-/// Accepts ISO `YYYY-MM-DD` or US-style `MM-DD-YYYY`. Disambiguation: if the first
-/// field is greater than 12 it is the year (ISO); otherwise if the last field is
-/// greater than 31 it is the year (MDY); otherwise ISO is assumed.
+/// Accepts ISO `YYYY-MM-DD` or US-style `MM-DD-YYYY` (`/` also separates).
+/// Disambiguation: if the first field is greater than 12 it is the year (ISO);
+/// otherwise if the last field is greater than 31 it is the year (MDY);
+/// otherwise ISO is assumed. Two-digit years are rejected: the year field must
+/// be written with four digits unless it is already `>= 1000`
+/// (`"03-10-26"` is `None`, not year 3).
 pub fn parse_date(s: &str) -> Option<Date> {
     let mut parts = s.splitn(3, &['/', '-'][..]);
-    let a: i32 = parts.next()?.parse().ok()?;
-    let b: i32 = parts.next()?.parse().ok()?;
-    let c: i32 = parts.next()?.parse().ok()?;
-    let (year, month, day) = if a > 12 {
-        (a, u8::try_from(b).ok()?, u8::try_from(c).ok()?)
+    let ta = parts.next()?;
+    let tb = parts.next()?;
+    let tc = parts.next()?;
+    let a: i32 = ta.parse().ok()?;
+    let b: i32 = tb.parse().ok()?;
+    let c: i32 = tc.parse().ok()?;
+    let ((year, year_token), month, day) = if a > 12 {
+        ((a, ta), u8::try_from(b).ok()?, u8::try_from(c).ok()?)
     } else if c > 31 {
-        (c, u8::try_from(a).ok()?, u8::try_from(b).ok()?)
+        ((c, tc), u8::try_from(a).ok()?, u8::try_from(b).ok()?)
     } else {
-        (a, u8::try_from(b).ok()?, u8::try_from(c).ok()?)
+        ((a, ta), u8::try_from(b).ok()?, u8::try_from(c).ok()?)
     };
+    if year < 1000 && year_token.len() != 4 {
+        return None;
+    }
     Date::from_calendar_date(year, time::Month::try_from(month).ok()?, day).ok()
 }
 
@@ -43,20 +52,37 @@ pub fn format_date(date: &Date) -> String {
 }
 
 /// Parse `YYYY-MM-DD` or `MM-DD-YYYY` date + `HH:MM...` (space or `T`) into (Date, hour, minute).
+///
+/// Seconds are accepted and validated but not returned; use
+/// [`parse_datetime_seconds`] to keep them. Any time field that is present
+/// but does not parse (including a trailing zone designator such as `Z`)
+/// yields `None` — this is a wall-time parser, not an instant parser.
 pub fn parse_datetime(s: &str) -> Option<(Date, u32, u32)> {
-    if let Some((date_part, time_part)) = s.split_once(' ').or_else(|| s.split_once('T')) {
-        let date = parse_date(date_part)?;
-        let parts: Vec<&str> = time_part.split(':').collect();
-        let hour: u32 = parts.first().and_then(|h| h.parse().ok()).unwrap_or(0);
-        let minute: u32 = parts.get(1).and_then(|m| m.parse().ok()).unwrap_or(0);
-        if hour > 23 || minute > 59 {
-            return None;
-        }
-        Some((date, hour, minute))
-    } else {
+    parse_datetime_seconds(s).map(|(d, h, m, _)| (d, h, m))
+}
+
+/// [`parse_datetime`] that also returns the seconds field (`0` when absent).
+/// Fractional seconds are accepted and truncated.
+pub fn parse_datetime_seconds(s: &str) -> Option<(Date, u32, u32, u32)> {
+    let Some((date_part, time_part)) = s.split_once(' ').or_else(|| s.split_once('T')) else {
         let date = parse_date(s)?;
-        Some((date, 0, 0))
+        return Some((date, 0, 0, 0));
+    };
+    let date = parse_date(date_part)?;
+    let mut parts = time_part.split(':');
+    let hour: u32 = parts.next()?.parse().ok()?;
+    let minute: u32 = match parts.next() {
+        Some(m) => m.parse().ok()?,
+        None => 0,
+    };
+    let second: u32 = match parts.next() {
+        Some(sec) => sec.split('.').next()?.parse().ok()?,
+        None => 0,
+    };
+    if parts.next().is_some() || hour > 23 || minute > 59 || second > 59 {
+        return None;
     }
+    Some((date, hour, minute, second))
 }
 
 /// Format a date + time as "MM-DD-YYYY HH:MM:00.0".
@@ -332,6 +358,59 @@ mod tests {
     fn format_date_range_same_date() {
         let d = date(2026, 3, 10);
         assert_eq!(format_date_range(&d, &d), "[\"03-10-2026\",\"03-10-2026\"]");
+    }
+
+    #[test]
+    fn parse_date_rejects_two_digit_year() {
+        // D7: "03-10-26" used to parse as year 3 (ISO branch) — reject it.
+        assert_eq!(parse_date("03-10-26"), None);
+        assert_eq!(parse_date("3/10/26"), None);
+        assert_eq!(parse_date("26-03-10"), None);
+    }
+
+    #[test]
+    fn parse_date_accepts_explicit_four_digit_small_year() {
+        assert_eq!(parse_date("0999-03-10"), Some(date(999, 3, 10)));
+        assert_eq!(parse_date("999-03-10"), None);
+    }
+
+    #[test]
+    fn parse_date_us_slash_format_short_year_rejected() {
+        assert_eq!(parse_date("12/31/2026"), Some(date(2026, 12, 31)));
+        assert_eq!(parse_date("12/31/26"), None);
+    }
+
+    #[test]
+    fn parse_datetime_rejects_unparsable_hour_or_minute() {
+        // D7: hour/minute that fail to parse used to default to 0.
+        assert_eq!(parse_datetime("2026-03-10 abc"), None);
+        assert_eq!(parse_datetime("2026-03-10 12:xx"), None);
+        assert_eq!(parse_datetime("2026-03-10 "), None);
+    }
+
+    #[test]
+    fn parse_datetime_rejects_trailing_zone_designator() {
+        // A UTC instant is not a wall time; do not silently drop the `Z`.
+        assert_eq!(parse_datetime("2026-07-19T04:30:00Z"), None);
+        assert_eq!(parse_datetime("2026-07-19T04:30:00+05:00"), None);
+    }
+
+    #[test]
+    fn parse_datetime_seconds_round_trip() {
+        assert_eq!(
+            parse_datetime_seconds("2026-01-01 10:30:45"),
+            Some((date(2026, 1, 1), 10, 30, 45))
+        );
+        assert_eq!(
+            parse_datetime_seconds("2026-01-01 10:30"),
+            Some((date(2026, 1, 1), 10, 30, 0))
+        );
+        assert_eq!(
+            parse_datetime_seconds("2026-01-01 10:30:00.5"),
+            Some((date(2026, 1, 1), 10, 30, 0))
+        );
+        assert_eq!(parse_datetime_seconds("2026-01-01 10:30:60"), None);
+        assert_eq!(parse_datetime_seconds("2026-01-01 10:30:zz"), None);
     }
 
     #[test]

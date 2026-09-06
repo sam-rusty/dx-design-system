@@ -1,7 +1,10 @@
 /// Major-unit decimal string → minor-unit integer string ("25.5", 2 → "2550").
-/// Rounds half away from zero at the cutoff. `None` on empty/malformed input.
+/// Rounds half away from zero at the cutoff. Thousands grouping (`"1,000.50"`) is
+/// accepted. `None` on empty/malformed input.
 pub fn major_to_minor(major: &str, decimals: u32) -> Option<String> {
-    let s = major.trim();
+    // Pasted/display values carry `format_number` grouping; strip it before validating.
+    let ungrouped = major.replace(',', "");
+    let s = ungrouped.trim();
     let (neg, s) = match s.strip_prefix('-') {
         Some(rest) => (true, rest),
         None => (false, s),
@@ -77,8 +80,29 @@ mod tests {
         assert_eq!(major_to_minor("", 2), None);
         assert_eq!(major_to_minor("  ", 2), None);
         assert_eq!(major_to_minor(".", 2), None);
+        assert_eq!(major_to_minor("-", 2), None);
+        assert_eq!(major_to_minor(",", 2), None);
+        assert_eq!(major_to_minor("+5", 2), None);
         assert_eq!(major_to_minor("12a", 2), None);
         assert_eq!(major_to_minor("1.2.3", 2), None);
+        assert_eq!(major_to_minor("1 000", 2), None);
+    }
+
+    #[test]
+    fn major_to_minor_accepts_grouped_input() {
+        assert_eq!(major_to_minor("1,000", 2).as_deref(), Some("100000"));
+        assert_eq!(major_to_minor("1,234.56", 2).as_deref(), Some("123456"));
+        assert_eq!(major_to_minor("-1,000.5", 2).as_deref(), Some("-100050"));
+        // Grouping is stripped, not validated: odd groups still parse.
+        assert_eq!(major_to_minor("12,34", 0).as_deref(), Some("1234"));
+    }
+
+    #[test]
+    fn major_to_minor_edge_rounding() {
+        assert_eq!(major_to_minor("-0.001", 2).as_deref(), Some("0"));
+        assert_eq!(major_to_minor("0.5", 0).as_deref(), Some("1"));
+        assert_eq!(major_to_minor(".5", 2).as_deref(), Some("50"));
+        assert_eq!(major_to_minor("5.", 2).as_deref(), Some("500"));
     }
 
     #[test]
@@ -89,5 +113,8 @@ mod tests {
         assert_eq!(minor_to_major("6500", 0), "6500");
         assert_eq!(minor_to_major("-350", 2), "-3.5");
         assert_eq!(minor_to_major("", 2), "");
+        // Malformed input passes through unchanged.
+        assert_eq!(minor_to_major("12a", 2), "12a");
+        assert_eq!(minor_to_major("1,000", 2), "1,000");
     }
 }

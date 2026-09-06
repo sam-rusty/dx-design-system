@@ -2,6 +2,10 @@
 //! render through the shared control family (labels, ids, controlled values)
 //! without the legacy string-map form.
 
+// Integration tests are not feature-gated by cargo; gate on the family this
+// file renders so `--no-default-features --features <family>` still builds.
+#![cfg(feature = "form")]
+
 use dioxus::dioxus_core::VirtualDom;
 use dioxus::prelude::*;
 use ds_components as components;

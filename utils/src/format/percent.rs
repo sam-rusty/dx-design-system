@@ -151,6 +151,13 @@ mod tests {
     }
 
     #[test]
+    fn test_clamp_percent_unparseable_passes_through() {
+        assert_eq!(clamp_percent("abc", 0.0, 100.0), "abc");
+        // `f64` parses "NaN"; clamping NaN is a no-op so the raw text comes back.
+        assert_eq!(clamp_percent("NaN", 0.0, 100.0), "NaN");
+    }
+
+    #[test]
     fn test_clamp_percent_decimal_preserved() {
         assert_eq!(clamp_percent("33.5", 0.0, 100.0), "33.5");
     }

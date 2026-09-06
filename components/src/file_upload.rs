@@ -1,10 +1,14 @@
-use std::sync::atomic::{AtomicU32, Ordering};
+#[cfg(feature = "web")]
+use std::cell::RefCell;
+#[cfg(feature = "web")]
+use std::rc::Rc;
 
 use dioxus::prelude::*;
+#[cfg(feature = "web")]
+use wasm_bindgen::closure::Closure;
 
+use crate::hooks::use_unique_id;
 use crate::icon::{Icon, IconName};
-
-static NEXT_ID: AtomicU32 = AtomicU32::new(0);
 
 /// Bytes read from a selected or dropped file.
 #[derive(Clone, Debug)]
@@ -15,6 +19,38 @@ pub struct FileInfo {
     pub data: Vec<u8>,
 }
 
+/// In-flight read batch. Plain shared state (not signals): it is only touched
+/// from `FileReader` callbacks, which may fire after the component unmounted —
+/// a signal write there would panic, an `Rc` write is harmless.
+#[cfg(feature = "web")]
+#[derive(Default)]
+struct Batch {
+    /// Generation counter so callbacks from a superseded batch are ignored.
+    generation: u32,
+    total: usize,
+    done: usize,
+    collected: Vec<FileInfo>,
+    /// Readers of the current batch with their `load`/`error` handler, aborted
+    /// when a new batch starts or on unmount. Holding the `Closure` here (rather
+    /// than `once_into_js`) means the handler that never fires — exactly one of
+    /// load/error does per file — is freed with the batch instead of leaking.
+    readers: Vec<PendingRead>,
+}
+
+#[cfg(feature = "web")]
+type PendingRead = (web_sys::FileReader, Closure<dyn FnMut(web_sys::Event)>);
+
+#[cfg(feature = "web")]
+impl Batch {
+    fn abort_readers(&mut self) {
+        for (reader, _handler) in self.readers.drain(..) {
+            reader.set_onload(None);
+            reader.set_onerror(None);
+            reader.abort();
+        }
+    }
+}
+
 /// File upload zone with drag-and-drop support.
 ///
 /// Renders a dashed drop-zone by default. Pass `children` to use a custom trigger
@@ -22,8 +58,9 @@ pub struct FileInfo {
 /// trigger must let the click propagate — calling `stop_propagation` on it (or a child)
 /// prevents the picker from opening.
 ///
-/// `on_change` fires once all selected/dropped files have been read into memory.
-/// `max_size_mb: 0` means no limit. Oversized files fire `on_error` if provided.
+/// `on_change` fires once all selected/dropped files have been read into memory
+/// (files that fail to read are skipped, so it still fires). `max_size_mb: 0` means
+/// no limit. Oversized and unreadable files fire `on_error` if provided.
 #[component]
 pub fn FileUpload(
     on_change: EventHandler<Vec<FileInfo>>,
@@ -33,104 +70,138 @@ pub fn FileUpload(
     #[props(default)]
     max_size_mb: usize,
     #[props(default)] disabled: bool,
-    /// Called for each rejected (oversized) file with a human-readable message.
+    /// Called with a human-readable message for each rejected (oversized) file
+    /// and for each file that could not be read.
     #[props(default)]
     on_error: Option<EventHandler<String>>,
     #[props(default)] children: Option<Element>,
 ) -> Element {
     let mut dragging = use_signal(|| false);
 
-    // Signals declared at component scope — Dioxus requires hooks at top level.
-    let mut collected: Signal<Vec<FileInfo>> = use_signal(Vec::new);
-    let mut done_count: Signal<usize> = use_signal(|| 0usize);
-    // Generation counter to discard stale callbacks from a previous batch.
-    let mut batch_gen: Signal<u32> = use_signal(|| 0u32);
+    #[cfg(feature = "web")]
+    let batch = use_hook(|| Rc::new(RefCell::new(Batch::default())));
+    #[cfg(feature = "web")]
+    use_drop({
+        let batch = batch.clone();
+        move || batch.borrow_mut().abort_readers()
+    });
 
     // Shared file-reading logic; only called from web event handlers.
-    // Both signals are Copy so they are captured by copy into the closure.
     #[cfg(feature = "web")]
-    let mut process_file_list = move |file_list: web_sys::FileList| {
-        use wasm_bindgen::JsCast;
-        use wasm_bindgen::closure::Closure;
+    let process_file_list = {
+        let batch = batch.clone();
+        move |file_list: web_sys::FileList| {
+            use wasm_bindgen::JsCast;
 
-        let count = file_list.length();
-        if count == 0 {
-            return;
-        }
-
-        let files: Vec<web_sys::File> = (0..count).filter_map(|i| file_list.get(i)).collect();
-
-        let (ok_files, rejected): (Vec<_>, Vec<_>) = if max_size_mb == 0 {
-            (files, vec![])
-        } else {
-            let limit = (max_size_mb * 1024 * 1024) as f64;
-            files.into_iter().partition(|f| f.size() <= limit)
-        };
-
-        for f in &rejected {
-            let msg = format!(
-                "'{}' exceeds the {max_size_mb} MB limit and was not uploaded.",
-                f.name()
-            );
-            if let Some(cb) = on_error {
-                cb.call(msg);
+            let count = file_list.length();
+            if count == 0 {
+                return;
             }
-        }
 
-        let total = ok_files.len();
-        if total == 0 {
-            return;
-        }
+            let files: Vec<web_sys::File> = (0..count).filter_map(|i| file_list.get(i)).collect();
 
-        // Increment generation so in-flight callbacks from a previous batch become stale.
-        let this_gen = *batch_gen.read() + 1;
-        batch_gen.set(this_gen);
-        *collected.write() = Vec::with_capacity(total);
-        done_count.set(0);
+            let (ok_files, rejected): (Vec<_>, Vec<_>) = if max_size_mb == 0 {
+                (files, vec![])
+            } else {
+                let limit = (max_size_mb * 1024 * 1024) as f64;
+                files.into_iter().partition(|f| f.size() <= limit)
+            };
 
-        for file in ok_files {
-            let name = file.name();
-            let size = file.size() as usize;
-            let mime_type = file.type_();
-
-            let reader = web_sys::FileReader::new().unwrap();
-            let reader_clone = reader.clone();
-
-            // `once_into_js` frees the Rust closure after the single `onload` fires,
-            // so there is no per-file leak (unlike `Closure::wrap(..).forget()`).
-            let onload = Closure::once_into_js(move || {
-                // Discard if a newer batch started.
-                if *batch_gen.read() != this_gen {
-                    return;
+            for f in &rejected {
+                let msg = format!(
+                    "'{}' exceeds the {max_size_mb} MB limit and was not uploaded.",
+                    f.name()
+                );
+                if let Some(cb) = on_error {
+                    cb.call(msg);
                 }
-                if let Ok(result) = reader_clone.result() {
-                    let Ok(array_buf) = result.dyn_into::<js_sys::ArrayBuffer>() else {
+            }
+
+            let total = ok_files.len();
+            if total == 0 {
+                return;
+            }
+
+            // Start a new generation: in-flight readers of the previous batch are
+            // aborted and their callbacks (if any still land) discarded.
+            let this_gen = {
+                let mut b = batch.borrow_mut();
+                b.abort_readers();
+                b.generation = b.generation.wrapping_add(1);
+                b.total = total;
+                b.done = 0;
+                b.collected = Vec::with_capacity(total);
+                b.generation
+            };
+
+            // Count one file as finished (read or failed) and fire `on_change`
+            // when the batch completes.
+            let finish_one = {
+                let batch = batch.clone();
+                move |generation: u32, file: Option<FileInfo>| {
+                    let mut b = batch.borrow_mut();
+                    if b.generation != generation {
                         return;
-                    };
-                    let bytes = js_sys::Uint8Array::new(&array_buf).to_vec();
-                    collected.write().push(FileInfo {
-                        name,
-                        size,
-                        mime_type,
-                        data: bytes,
-                    });
-                    *done_count.write() += 1;
-                    let next = *done_count.read();
-                    if next == total {
-                        on_change.call(collected.read().clone());
+                    }
+                    if let Some(file) = file {
+                        b.collected.push(file);
+                    }
+                    b.done += 1;
+                    if b.done == b.total {
+                        let files = std::mem::take(&mut b.collected);
+                        b.readers.clear();
+                        drop(b);
+                        on_change.call(files);
                     }
                 }
-            });
+            };
 
-            reader.set_onload(Some(onload.unchecked_ref()));
-            let _ = reader.read_as_array_buffer(&file);
+            for file in ok_files {
+                let name = file.name();
+                let size = file.size() as usize;
+                let mime_type = file.type_();
+
+                let reader = web_sys::FileReader::new().unwrap();
+                let reader_clone = reader.clone();
+
+                // One handler serves both `load` and `error`; the batch owns it
+                // (see `Batch::readers`) so whichever event does not fire is
+                // still freed. Dropping it from inside its own invocation (the
+                // batch completing) is safe: wasm-bindgen defers the free until
+                // the call returns.
+                let handler = {
+                    let finish_one = finish_one.clone();
+                    let name = name.clone();
+                    Closure::wrap(Box::new(move |ev: web_sys::Event| {
+                        let file = (ev.type_() == "load")
+                            .then(|| reader_clone.result().ok())
+                            .flatten()
+                            .and_then(|r| r.dyn_into::<js_sys::ArrayBuffer>().ok())
+                            .map(|array_buf| FileInfo {
+                                name: name.clone(),
+                                size,
+                                mime_type: mime_type.clone(),
+                                data: js_sys::Uint8Array::new(&array_buf).to_vec(),
+                            });
+                        if file.is_none()
+                            && let Some(cb) = on_error
+                        {
+                            cb.call(format!("'{name}' could not be read."));
+                        }
+                        finish_one(this_gen, file);
+                    }) as Box<dyn FnMut(web_sys::Event)>)
+                };
+
+                reader.set_onload(Some(handler.as_ref().unchecked_ref()));
+                reader.set_onerror(Some(handler.as_ref().unchecked_ref()));
+                batch.borrow_mut().readers.push((reader.clone(), handler));
+                let _ = reader.read_as_array_buffer(&file);
+            }
         }
     };
 
-    let input_id = use_hook(|| {
-        let n = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        format!("file-upload-input-{n}")
-    });
+    let input_id = use_unique_id();
+    let input_id = input_id.peek().clone();
 
     let zone_class = if disabled {
         "relative flex flex-col items-center justify-center w-full h-36 rounded-xl \
@@ -146,6 +217,10 @@ pub fn FileUpload(
 
     let input_id_for_input = input_id.clone();
     let input_id_for_custom = input_id.clone();
+    #[cfg(feature = "web")]
+    let process_on_change = process_file_list.clone();
+    #[cfg(feature = "web")]
+    let process_on_drop = process_file_list;
 
     rsx! {
         div { class: "w-full",
@@ -155,7 +230,7 @@ pub fn FileUpload(
                 r#type: "file",
                 class: "sr-only",
                 "aria-label": if multiple { "Upload files" } else { "Upload file" },
-                accept: accept.unwrap_or(""),
+                accept,
                 multiple,
                 disabled,
                 onchange: move |e: Event<FormData>| {
@@ -167,7 +242,7 @@ pub fn FileUpload(
                         let target = native.target().unwrap();
                         let input: web_sys::HtmlInputElement = target.unchecked_into();
                         if let Some(files) = input.files() {
-                            process_file_list(files);
+                            process_on_change(files);
                         }
                         input.set_value("");
                     }
@@ -216,7 +291,7 @@ pub fn FileUpload(
                             let native = e.as_web_event();
                             if let Some(dt) = native.data_transfer()
                                 && let Some(files) = dt.files() {
-                                    process_file_list(files);
+                                    process_on_drop(files);
                                 }
                         }
                         #[cfg(not(feature = "web"))]

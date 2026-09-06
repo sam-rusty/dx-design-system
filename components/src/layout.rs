@@ -149,6 +149,9 @@ pub fn Flex(
     #[props(default)] align: FlexAlign,
     #[props(default)] justify: FlexJustify,
     #[props(default)] wrap: FlexWrap,
+    /// Extra attributes forwarded to the root `div` (`id`, `role`, `aria-*`, `data-*`).
+    #[props(extends = GlobalAttributes)]
+    attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged = merge(&[
@@ -162,7 +165,7 @@ pub fn Flex(
     ]);
 
     rsx! {
-        div { class: "{merged}", {children} }
+        div { class: "{merged}", ..attributes, {children} }
     }
 }
 
@@ -173,6 +176,9 @@ pub fn Row(
     #[props(default)] align: FlexAlign,
     #[props(default)] justify: FlexJustify,
     #[props(default)] wrap: FlexWrap,
+    /// Extra attributes forwarded to the root `div` (`id`, `role`, `aria-*`, `data-*`).
+    #[props(extends = GlobalAttributes)]
+    attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged = merge(&[
@@ -185,7 +191,7 @@ pub fn Row(
     ]);
 
     rsx! {
-        div { class: "{merged}", {children} }
+        div { class: "{merged}", ..attributes, {children} }
     }
 }
 
@@ -196,6 +202,9 @@ pub fn Column(
     #[props(default)] align: FlexAlign,
     #[props(default)] justify: FlexJustify,
     #[props(default)] wrap: FlexWrap,
+    /// Extra attributes forwarded to the root `div` (`id`, `role`, `aria-*`, `data-*`).
+    #[props(extends = GlobalAttributes)]
+    attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged = merge(&[
@@ -208,7 +217,7 @@ pub fn Column(
     ]);
 
     rsx! {
-        div { class: "{merged}", {children} }
+        div { class: "{merged}", ..attributes, {children} }
     }
 }
 
@@ -219,6 +228,9 @@ pub fn Grid(
     #[props(default)] gap: FlexGap,
     #[props(default)] align: FlexAlign,
     #[props(default)] justify: FlexJustify,
+    /// Extra attributes forwarded to the root `div` (`id`, `role`, `aria-*`, `data-*`).
+    #[props(extends = GlobalAttributes)]
+    attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let merged = merge(&[
@@ -231,7 +243,7 @@ pub fn Grid(
     ]);
 
     rsx! {
-        div { class: "{merged}", {children} }
+        div { class: "{merged}", ..attributes, {children} }
     }
 }
 

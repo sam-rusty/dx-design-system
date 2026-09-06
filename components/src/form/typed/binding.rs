@@ -26,6 +26,8 @@ pub struct BoundField {
     /// prop memoization. Value changes propagate through signal reads, not
     /// prop inequality.
     pub(super) form_scope: ScopeId,
+    /// Registration owner token (see `RegisteredField::owner`).
+    pub(super) owner: Rc<()>,
     pub(super) display: Rc<dyn Fn() -> String>,
     pub(super) set_text: Rc<dyn Fn(&str)>,
     pub(super) touch: Rc<dyn Fn()>,
@@ -118,6 +120,7 @@ impl Clone for BoundField {
             label: self.label,
             required: self.required,
             form_scope: self.form_scope,
+            owner: self.owner.clone(),
             display: self.display.clone(),
             set_text: self.set_text.clone(),
             touch: self.touch.clone(),

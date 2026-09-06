@@ -9,65 +9,141 @@ use ds_utils::format::{
     parse_number, parse_percent, parse_phone_with,
 };
 
-use crate::hooks::use_controlled;
+use crate::hooks::{use_controlled, use_prop_signal};
 use crate::icon::{Icon, IconName};
 use crate::input::{FieldSize, InputBase, InputBaseProps, InputType};
 
-/// Shared props for the typed standalone input family ([`TextInputBase`],
-/// [`EmailInputBase`], [`PasswordInputBase`], [`PhoneInputBase`],
-/// [`NumberInputBase`]). The `value` contract is always the *raw* value —
-/// formatting is internal to each base.
-#[derive(Props, Clone, PartialEq)]
-pub struct TypedInputBaseProps {
-    /// Controlled raw value. `Some` makes the caller the source of truth
-    /// (pair with `on_value_change`); `None` leaves the input uncontrolled.
-    #[props(default)]
-    pub value: ReadSignal<Option<String>>,
-    /// Initial raw value when uncontrolled.
-    #[props(default)]
-    pub default_value: String,
-    /// Fired with the new raw (parsed) value on every input event.
-    #[props(default)]
-    pub on_value_change: Callback<String>,
-    /// Fired with the committed raw value on the change event (blur / Enter).
-    #[props(default)]
-    pub on_commit: Callback<String>,
-    /// Fired when the input loses focus.
-    #[props(default)]
-    pub on_blur: Callback<FocusEvent>,
-    /// Fired on keydown.
-    #[props(default)]
-    pub on_key_down: Callback<KeyboardEvent>,
-    /// Whether the input is disabled.
-    #[props(default)]
-    pub disabled: ReadSignal<bool>,
-    /// Visual size (shared [`FieldSize`] scale).
-    #[props(default)]
-    pub size: FieldSize,
-    /// Extra classes merged into the base style; the full class list when `unstyled`.
-    #[props(default)]
-    pub class: String,
-    /// Placeholder text.
-    #[props(default)]
-    pub placeholder: Option<String>,
-    /// DOM id. Form bindings set this to the field name so labels target it.
-    #[props(default)]
-    pub id: Option<String>,
-    /// Autofocus on mount (deferred by `AutofocusGate` when one is provided).
-    #[props(default)]
-    pub autofocus: bool,
-    /// Skip the built-in styling entirely; `class` is used verbatim.
-    #[props(default)]
-    pub unstyled: bool,
-    /// `aria-invalid` value (form bindings set `"true"` on validation failure).
-    #[props(default)]
-    pub aria_invalid: Option<String>,
-    /// `aria-describedby` target (the field's error element id).
-    #[props(default)]
-    pub aria_describedby: Option<String>,
-    /// Additional attributes (`name`, `min`, `max`, `step`, `readonly`, ...).
-    #[props(extends = GlobalAttributes, extends = input)]
-    pub attributes: Vec<Attribute>,
+/// Declares a typed-base props struct: the shared field set (written once,
+/// here), then the struct's own extra fields, then `attributes`. With
+/// `split => name`, also emits `fn name(self) -> (TypedInputBaseProps, (extras,))`
+/// that peels the extras off and rebuilds the shared struct, so the public
+/// structs cannot drift from [`TypedInputBaseProps`].
+macro_rules! typed_input_props {
+    (
+        $(#[$meta:meta])*
+        pub struct $name:ident {
+            $( $(#[$field_meta:meta])* pub $field:ident : $ty:ty ),* $(,)?
+        }
+        split => $split:ident
+    ) => {
+        typed_input_props! {
+            $(#[$meta])*
+            pub struct $name { $( $(#[$field_meta])* pub $field : $ty ),* }
+        }
+
+        impl $name {
+            /// Split into the shared base props and this struct's extra fields.
+            fn $split(self) -> (TypedInputBaseProps, ( $($ty,)* )) {
+                let $name {
+                    value,
+                    default_value,
+                    on_value_change,
+                    on_commit,
+                    on_blur,
+                    on_key_down,
+                    disabled,
+                    size,
+                    class,
+                    placeholder,
+                    id,
+                    autofocus,
+                    unstyled,
+                    aria_invalid,
+                    aria_describedby,
+                    attributes,
+                    $($field,)*
+                } = self;
+                let base = TypedInputBaseProps {
+                    value,
+                    default_value,
+                    on_value_change,
+                    on_commit,
+                    on_blur,
+                    on_key_down,
+                    disabled,
+                    size,
+                    class,
+                    placeholder,
+                    id,
+                    autofocus,
+                    unstyled,
+                    aria_invalid,
+                    aria_describedby,
+                    attributes,
+                };
+                (base, ( $($field,)* ))
+            }
+        }
+    };
+    (
+        $(#[$meta:meta])*
+        pub struct $name:ident {
+            $( $(#[$field_meta:meta])* pub $field:ident : $ty:ty ),* $(,)?
+        }
+    ) => {
+        $(#[$meta])*
+        #[derive(Props, Clone, PartialEq)]
+        pub struct $name {
+            /// Controlled raw value. `Some` makes the caller the source of truth
+            /// (pair with `on_value_change`); `None` leaves the input uncontrolled.
+            #[props(default)]
+            pub value: ReadSignal<Option<String>>,
+            /// Initial raw value when uncontrolled.
+            #[props(default)]
+            pub default_value: String,
+            /// Fired with the new raw (parsed) value on every input event.
+            #[props(default)]
+            pub on_value_change: Callback<String>,
+            /// Fired with the committed raw value on the change event (blur / Enter).
+            #[props(default)]
+            pub on_commit: Callback<String>,
+            /// Fired when the input loses focus.
+            #[props(default)]
+            pub on_blur: Callback<FocusEvent>,
+            /// Fired on keydown.
+            #[props(default)]
+            pub on_key_down: Callback<KeyboardEvent>,
+            /// Whether the input is disabled.
+            #[props(default)]
+            pub disabled: ReadSignal<bool>,
+            /// Visual size (shared [`FieldSize`] scale).
+            #[props(default)]
+            pub size: FieldSize,
+            /// Extra classes merged into the base style; the full class list when `unstyled`.
+            #[props(default)]
+            pub class: String,
+            /// Placeholder text.
+            #[props(default)]
+            pub placeholder: Option<String>,
+            /// DOM id. Form bindings set this to the field name so labels target it.
+            #[props(default)]
+            pub id: Option<String>,
+            /// Autofocus on mount (deferred by `AutofocusGate` when one is provided).
+            #[props(default)]
+            pub autofocus: bool,
+            /// Skip the built-in styling entirely; `class` is used verbatim.
+            #[props(default)]
+            pub unstyled: bool,
+            /// `aria-invalid` value (form bindings set `"true"` on validation failure).
+            #[props(default)]
+            pub aria_invalid: Option<String>,
+            /// `aria-describedby` target (the field's error element id).
+            #[props(default)]
+            pub aria_describedby: Option<String>,
+            $( $(#[$field_meta])* pub $field: $ty, )*
+            /// Additional attributes (`name`, `min`, `max`, `step`, `readonly`, ...).
+            #[props(extends = GlobalAttributes, extends = input)]
+            pub attributes: Vec<Attribute>,
+        }
+    };
+}
+
+typed_input_props! {
+    /// Shared props for the typed standalone input family ([`TextInputBase`],
+    /// [`EmailInputBase`], [`PasswordInputBase`], [`PhoneInputBase`],
+    /// [`NumberInputBase`]). The `value` contract is always the *raw* value —
+    /// formatting is internal to each base.
+    pub struct TypedInputBaseProps {}
 }
 
 /// The raw ↔ display transform pair of one typed base. A variant rather than
@@ -85,6 +161,26 @@ enum Transform {
     },
     /// Phone, formatted for the caller's country.
     Phone(PhoneFormat),
+}
+
+// Function pointers are compared by address (cast to `usize`) — the plain `==`
+// on `fn` items is flagged as unpredictable; here a false "changed" only costs a
+// signal write, never wrong output.
+impl PartialEq for Transform {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::None, Self::None) => true,
+            (
+                Self::Fns { format, parse },
+                Self::Fns {
+                    format: f2,
+                    parse: p2,
+                },
+            ) => *format as usize == *f2 as usize && *parse as usize == *p2 as usize,
+            (Self::Phone(a), Self::Phone(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl Transform {
@@ -115,6 +211,15 @@ struct TypedBehavior {
     transform: Transform,
     /// Keystroke filter applied before `transform`'s parse.
     filter: Option<fn(&str) -> String>,
+}
+
+impl PartialEq for TypedBehavior {
+    fn eq(&self, other: &Self) -> bool {
+        self.r#type == other.r#type
+            && self.inputmode == other.inputmode
+            && self.transform == other.transform
+            && self.filter.map(|f| f as usize) == other.filter.map(|f| f as usize)
+    }
 }
 
 impl TypedBehavior {
@@ -151,13 +256,19 @@ fn TypedInput<M: Fn(String) -> String + Copy + 'static>(
         props.on_value_change,
     );
 
+    // The display memo's closure is created once; mirror `behavior` through a
+    // signal so a transform that changes at runtime (e.g. a phone format picked
+    // from a country selector) re-formats the display instead of staying stale.
+    let behavior_sig = use_prop_signal(behavior);
     let display: ReadSignal<Option<String>> =
-        use_memo(move || Some(behavior.transform.format(&raw()))).into();
+        use_memo(move || Some(behavior_sig.read().transform.format(&raw()))).into();
 
     let on_commit = props.on_commit;
 
     let mut attributes = props.attributes;
-    if let Some(mode) = behavior.inputmode {
+    if let Some(mode) = behavior.inputmode
+        && !attributes.iter().any(|a| a.name == "inputmode")
+    {
         attributes.push(Attribute::new("inputmode", mode, None, false));
     }
 
@@ -204,111 +315,28 @@ pub fn EmailInputBase(props: TypedInputBaseProps) -> Element {
     TypedInput(props, TypedBehavior::plain(InputType::Email), None, |v| v)
 }
 
-/// Props for [`PhoneInputBase`]: [`TypedInputBaseProps`] plus the country
-/// display format.
-#[derive(Props, Clone, PartialEq)]
-pub struct PhoneInputBaseProps {
-    /// Controlled raw value. `Some` makes the caller the source of truth
-    /// (pair with `on_value_change`); `None` leaves the input uncontrolled.
-    #[props(default)]
-    pub value: ReadSignal<Option<String>>,
-    /// Initial raw value when uncontrolled.
-    #[props(default)]
-    pub default_value: String,
-    /// Fired with the new raw (national digits) value on every input event.
-    #[props(default)]
-    pub on_value_change: Callback<String>,
-    /// Fired with the committed raw value on the change event (blur / Enter).
-    #[props(default)]
-    pub on_commit: Callback<String>,
-    /// Fired when the input loses focus.
-    #[props(default)]
-    pub on_blur: Callback<FocusEvent>,
-    /// Fired on keydown.
-    #[props(default)]
-    pub on_key_down: Callback<KeyboardEvent>,
-    /// Whether the input is disabled.
-    #[props(default)]
-    pub disabled: ReadSignal<bool>,
-    /// Visual size (shared [`FieldSize`] scale).
-    #[props(default)]
-    pub size: FieldSize,
-    /// Extra classes merged into the base style; the full class list when `unstyled`.
-    #[props(default)]
-    pub class: String,
-    /// Placeholder text.
-    #[props(default)]
-    pub placeholder: Option<String>,
-    /// DOM id. Form bindings set this to the field name so labels target it.
-    #[props(default)]
-    pub id: Option<String>,
-    /// Autofocus on mount (deferred by `AutofocusGate` when one is provided).
-    #[props(default)]
-    pub autofocus: bool,
-    /// Skip the built-in styling entirely; `class` is used verbatim.
-    #[props(default)]
-    pub unstyled: bool,
-    /// `aria-invalid` value (form bindings set `"true"` on validation failure).
-    #[props(default)]
-    pub aria_invalid: Option<String>,
-    /// `aria-describedby` target (the field's error element id).
-    #[props(default)]
-    pub aria_describedby: Option<String>,
-    /// Display format, as a pattern whose `#` are national digits
-    /// (`"+44 #### ######"`), or a list of them for a country with several
-    /// number lengths. Defaults to [`PhoneFormat::US`].
-    #[props(default, into)]
-    pub format: PhoneFormat,
-    /// Additional attributes (`name`, `readonly`, ...).
-    #[props(extends = GlobalAttributes, extends = input)]
-    pub attributes: Vec<Attribute>,
+typed_input_props! {
+    /// Props for [`PhoneInputBase`]: [`TypedInputBaseProps`] plus the country
+    /// display format.
+    pub struct PhoneInputBaseProps {
+        /// Display format, as a pattern whose `#` are national digits
+        /// (`"+44 #### ######"`), or a list of them for a country with several
+        /// number lengths. Defaults to [`PhoneFormat::US`].
+        #[props(default, into)]
+        pub format: PhoneFormat,
+    }
+    split => into_base
 }
 
 /// Phone input (`type="tel"`): displays the number in `format`'s format,
 /// propagates the raw national digits.
 pub fn PhoneInputBase(props: PhoneInputBaseProps) -> Element {
-    let PhoneInputBaseProps {
-        value,
-        default_value,
-        on_value_change,
-        on_commit,
-        on_blur,
-        on_key_down,
-        disabled,
-        size,
-        class,
-        placeholder,
-        id,
-        autofocus,
-        unstyled,
-        aria_invalid,
-        aria_describedby,
-        format,
-        attributes,
-    } = props;
+    let (inner, (format,)) = props.into_base();
     let behavior = TypedBehavior {
         r#type: InputType::Tel,
         inputmode: Some("tel"),
         transform: Transform::Phone(format),
         filter: None,
-    };
-    let inner = TypedInputBaseProps {
-        value,
-        default_value,
-        on_value_change,
-        on_commit,
-        on_blur,
-        on_key_down,
-        disabled,
-        size,
-        class,
-        placeholder,
-        id,
-        autofocus,
-        unstyled,
-        aria_invalid,
-        aria_describedby,
-        attributes,
     };
     TypedInput(inner, behavior, None, |v| v)
 }
@@ -328,89 +356,23 @@ pub fn NumberInputBase(props: TypedInputBaseProps) -> Element {
     TypedInput(props, behavior, None, |v| v)
 }
 
-/// Props for [`PercentageInputBase`]: [`TypedInputBaseProps`] plus clamp bounds.
-#[derive(Props, Clone, PartialEq)]
-pub struct PercentageInputBaseProps {
-    /// Controlled raw value. `Some` makes the caller the source of truth
-    /// (pair with `on_value_change`); `None` leaves the input uncontrolled.
-    #[props(default)]
-    pub value: ReadSignal<Option<String>>,
-    /// Initial raw value when uncontrolled.
-    #[props(default)]
-    pub default_value: String,
-    /// Fired with the new raw (parsed) value on every input event.
-    #[props(default)]
-    pub on_value_change: Callback<String>,
-    /// Fired with the committed, clamped raw value on the change event.
-    #[props(default)]
-    pub on_commit: Callback<String>,
-    /// Fired when the input loses focus.
-    #[props(default)]
-    pub on_blur: Callback<FocusEvent>,
-    /// Fired on keydown.
-    #[props(default)]
-    pub on_key_down: Callback<KeyboardEvent>,
-    /// Whether the input is disabled.
-    #[props(default)]
-    pub disabled: ReadSignal<bool>,
-    /// Visual size (shared [`FieldSize`] scale).
-    #[props(default)]
-    pub size: FieldSize,
-    /// Extra classes merged into the base style; the full class list when `unstyled`.
-    #[props(default)]
-    pub class: String,
-    /// Placeholder text.
-    #[props(default)]
-    pub placeholder: Option<String>,
-    /// DOM id. Form bindings set this to the field name so labels target it.
-    #[props(default)]
-    pub id: Option<String>,
-    /// Autofocus on mount (deferred by `AutofocusGate` when one is provided).
-    #[props(default)]
-    pub autofocus: bool,
-    /// Skip the built-in styling entirely; `class` is used verbatim.
-    #[props(default)]
-    pub unstyled: bool,
-    /// `aria-invalid` value (form bindings set `"true"` on validation failure).
-    #[props(default)]
-    pub aria_invalid: Option<String>,
-    /// `aria-describedby` target (the field's error element id).
-    #[props(default)]
-    pub aria_describedby: Option<String>,
-    /// Lower clamp bound applied on commit.
-    #[props(default = 0.0)]
-    pub min: f64,
-    /// Upper clamp bound applied on commit.
-    #[props(default = 100.0)]
-    pub max: f64,
-    /// Additional attributes.
-    #[props(extends = GlobalAttributes, extends = input)]
-    pub attributes: Vec<Attribute>,
+typed_input_props! {
+    /// Props for [`PercentageInputBase`]: [`TypedInputBaseProps`] plus clamp bounds.
+    pub struct PercentageInputBaseProps {
+        /// Lower clamp bound applied on commit.
+        #[props(default = 0.0)]
+        pub min: f64,
+        /// Upper clamp bound applied on commit.
+        #[props(default = 100.0)]
+        pub max: f64,
+    }
+    split => into_base
 }
 
 /// Percentage input: percent-formatted display, raw decimal string value,
 /// clamped into `[min, max]` when the value is committed.
 pub fn PercentageInputBase(props: PercentageInputBaseProps) -> Element {
-    let PercentageInputBaseProps {
-        value,
-        default_value,
-        on_value_change,
-        on_commit,
-        on_blur,
-        on_key_down,
-        disabled,
-        size,
-        class,
-        placeholder,
-        id,
-        autofocus,
-        unstyled,
-        aria_invalid,
-        aria_describedby,
-        min,
-        max,
-        attributes,
-    } = props;
+    let (inner, (min, max)) = props.into_base();
     let behavior = TypedBehavior {
         r#type: InputType::Text,
         inputmode: Some("decimal"),
@@ -418,25 +380,7 @@ pub fn PercentageInputBase(props: PercentageInputBaseProps) -> Element {
             format: format_percent,
             parse: parse_percent,
         },
-        filter: Some(filter_percent),
-    };
-    let inner = TypedInputBaseProps {
-        value,
-        default_value,
-        on_value_change,
-        on_commit,
-        on_blur,
-        on_key_down,
-        disabled,
-        size,
-        class,
-        placeholder,
-        id,
-        autofocus,
-        unstyled,
-        aria_invalid,
-        aria_describedby,
-        attributes,
+        filter: Some(filter_percent_signed),
     };
     TypedInput(inner, behavior, None, move |v| clamp_percent(&v, min, max))
 }
@@ -468,6 +412,16 @@ pub fn PasswordInputBase(props: TypedInputBaseProps) -> Element {
     };
 
     TypedInput(props, behavior, Some(trailing), |v| v)
+}
+
+/// Keystroke filter for [`PercentageInputBase`]: `filter_percent` plus one
+/// leading `-`, so a negative `min` is reachable (the commit clamp still
+/// applies).
+fn filter_percent_signed(input: &str) -> String {
+    match input.strip_prefix('-') {
+        Some(rest) => format!("-{}", filter_percent(rest)),
+        None => filter_percent(input),
+    }
 }
 
 /// Keystroke filter for [`NumberInputBase`]: digits, one leading `-`, one `.`,
@@ -582,6 +536,29 @@ mod tests {
         let display = behavior.transform.format(raw);
         assert_eq!(display, "+44 7911 123456");
         assert_eq!(behavior.normalize(display), raw);
+    }
+
+    #[test]
+    fn filter_numeric_keeps_partial_entries() {
+        assert_eq!(filter_numeric("-"), "-");
+        assert_eq!(filter_numeric("-."), "-0.");
+        assert_eq!(filter_numeric("1."), "1.");
+    }
+
+    #[test]
+    fn percent_behavior_normalizes_formatted_input() {
+        let behavior = TypedBehavior {
+            r#type: InputType::Text,
+            inputmode: Some("decimal"),
+            transform: Transform::Fns {
+                format: format_percent,
+                parse: parse_percent,
+            },
+            filter: Some(filter_percent_signed),
+        };
+        assert_eq!(behavior.normalize("50%".to_string()), "50");
+        assert_eq!(behavior.normalize("-12.5%".to_string()), "-12.5");
+        assert_eq!(behavior.normalize("1-2".to_string()), "12");
     }
 
     #[test]

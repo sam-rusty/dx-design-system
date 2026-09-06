@@ -1,6 +1,8 @@
 # Macros
 
-Procedural macros for the FNA project. Provides derive macros and a route definition macro used by the `components` crate.
+Procedural macros (`ds-macros`) used by the `components` crate and re-exported from it
+(`components::{FormFields, FormOptions, Steps}`; `on_server!` / `on_web!` from the `design-system`
+facade). One feature flag per macro (`default-features = false, features = ["steps"]`).
 
 ## Exports
 
@@ -31,7 +33,7 @@ struct LoginForm {
 // LoginForm::email    -> FieldName("email")
 // LoginForm::password -> FieldName("password")
 
-view! { <FormItem name=LoginForm::email /> }
+rsx! { TextInput { field: LoginForm::email } }
 ```
 
 ### Nested fields
@@ -55,7 +57,7 @@ struct UserForm {
 // Nested dot-path via .dot():
 // UserForm::address.dot(Address::street) -> FieldPath("address.street")
 
-view! { <FormItem name=UserForm::address.dot(Address::street) /> }
+rsx! { TextInput { field: UserForm::address.dot(Address::street) } }
 ```
 
 ### Array fields
@@ -77,10 +79,10 @@ struct OrderForm {
 // OrderForm::items.at(0).dot(Item::name) -> FieldPath("items.0.name")
 // OrderForm::items.at(2).dot(Item::qty)  -> FieldPath("items.2.qty")
 
-for i in 0..item_count {
-    view! {
-        <FormItem name=OrderForm::items.at(i).dot(Item::name) />
-        <FormItem name=OrderForm::items.at(i).dot(Item::qty) />
+rsx! {
+    for i in 0..item_count {
+        TextInput { field: OrderForm::items.at(i).dot(Item::name) }
+        NumberInput { field: OrderForm::items.at(i).dot(Item::qty) }
     }
 }
 ```
@@ -120,8 +122,10 @@ enum Role {
 
 // Role::OPTIONS -> &[("admin", "Admin"), ("user", "User"), ("superadmin", "Super Admin")]
 
-view! { <Select options=Role::OPTIONS /> }
-view! { <RadioGroup options=Role::OPTIONS /> }
+rsx! {
+    Select { field: Profile::role, options: Role::OPTIONS }
+    RadioGroup { field: Profile::role, options: Role::OPTIONS }
+}
 ```
 
 ### Per-variant rename
@@ -141,6 +145,12 @@ enum Status {
 ### Supported `rename_all` rules
 
 `lowercase`, `UPPERCASE`, `camelCase`, `PascalCase`, `snake_case`, `SCREAMING_SNAKE_CASE`, `kebab-case`, `SCREAMING-KEBAB-CASE`
+
+### Data-carrying variants
+
+Enums with data variants are accepted: they get `OPTIONS` and the `FormSchema` impl but no
+`FormValue` impl (a value cannot round-trip through a plain string). At least one unit variant is
+required (it is the first/default option); an enum without one is a compile error.
 
 ---
 
@@ -163,9 +173,13 @@ pub enum MyStep {
 // MyStep::DESCRIPTIONS -> &["The first step.", ""]
 ```
 
-- `title` defaults to the variant name converted from `PascalCase` to `Title Case` if omitted.
+- `title` defaults to the variant name converted from `PascalCase` to `Title Case` if omitted
+  (acronyms and digits stay grouped: `HTTPSetup` -> `HTTP Setup`, `Step2` -> `Step 2`).
 - `description` defaults to `""` if omitted.
-- Only unit variants are supported.
+- Only unit variants are supported; an unknown `#[step(..)]` key or a non-string value is a
+  compile error.
+- The consts are inherent. Forward them into `components::StepDefinition` (multi-step forms) or
+  `components::StepMeta` (`StepDots`) with a small impl block — see the components README.
 
 ---
 

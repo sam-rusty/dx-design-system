@@ -1,8 +1,9 @@
 use dioxus::prelude::*;
+use ds_utils::format::merge;
 
 use crate::hooks::{
     FocusState, use_focus_control_disabled, use_focus_entry_disabled, use_focus_provider,
-    use_unique_id,
+    use_prop_signal, use_unique_id,
 };
 use crate::icon::{Icon, IconName};
 
@@ -51,8 +52,10 @@ pub fn Accordion(
 
     use_focus_provider(use_signal(|| true).into());
 
-    let classes =
-        format!("divide-y divide-border rounded-xl border border-border overflow-hidden {class}",);
+    let classes = merge(&[
+        "divide-y divide-border rounded-xl border border-border overflow-hidden",
+        &class,
+    ]);
 
     rsx! {
         div { class: classes,
@@ -111,7 +114,8 @@ fn AccordionSection(
     let header_id = format!("{base}-header");
     let panel_id = format!("{base}-panel");
 
-    let index_sig = use_signal(|| index);
+    // Roving-focus index follows the prop (items can be reordered under stable keys).
+    let index_sig = use_prop_signal(index);
     use_focus_entry_disabled(focus, index_sig, move || disabled);
     let onmounted = use_focus_control_disabled(focus, index_sig, move || disabled);
 

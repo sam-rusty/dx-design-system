@@ -1,4 +1,6 @@
 use dioxus::prelude::*;
+
+use crate::hooks::use_prop_signal;
 use ds_utils::format::merge;
 
 /// One selectable color swatch. `value` is an opaque identifier the caller maps
@@ -20,10 +22,12 @@ pub fn ColorSwatchPicker(
     value: ReadSignal<Option<String>>,
     on_select: EventHandler<String>,
 ) -> Element {
-    let first = options.first().map(|o| o.value.clone());
+    // Mirror the (captured-once) first option into a signal so the effect sees
+    // a changed `options` list rather than the value from the first render.
+    let first = use_prop_signal(options.first().map(|o| o.value.clone()));
     use_effect(move || {
         if value().is_none()
-            && let Some(v) = first.clone()
+            && let Some(v) = first()
         {
             on_select.call(v);
         }
@@ -45,6 +49,8 @@ pub fn ColorSwatchPicker(
                         button {
                             r#type: "button",
                             title: "{opt.label}",
+                            "aria-label": "{opt.label}",
+                            "aria-pressed": "{selected}",
                             class: "{class}",
                             onclick: move |_| on_select.call(v.clone()),
                         }

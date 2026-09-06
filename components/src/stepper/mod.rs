@@ -1,4 +1,6 @@
 mod state;
+#[cfg(test)]
+mod tests;
 mod view;
 
 #[deprecated(note = "renamed to `StepDefinition`")]

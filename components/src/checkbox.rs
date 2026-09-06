@@ -86,7 +86,8 @@ pub fn CheckboxBase(props: CheckboxBaseProps) -> Element {
             "aria-describedby": props.aria_describedby.clone(),
             onclick: move |ev| {
                 ev.stop_propagation();
-                set_checked(!is_checked);
+                // Toggle from the live value, not the render-time snapshot.
+                set_checked(!*checked.peek());
             },
             onkeydown: move |ev| {
                 // ARIA checkbox: Space toggles (native button click), Enter must not.
@@ -124,7 +125,7 @@ pub(crate) fn CheckboxControl(
             id: binding.id.clone(),
             disabled: ReadSignal::from(binding.disabled),
             checked,
-            aria_describedby: binding.aria_describedby.clone(),
+            aria_describedby: binding.aria_describedby_when_invalid(),
             aria_invalid: binding.aria_invalid(),
             aria_labelledby,
             on_checked_change: move |checked: bool| on_commit.call(checked.to_string()),

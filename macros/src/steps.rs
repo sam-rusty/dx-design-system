@@ -46,18 +46,28 @@ pub fn derive_steps(input: TokenStream) -> TokenStream {
             if !attr.path().is_ident("step") {
                 continue;
             }
-            let _ = attr.parse_nested_meta(|meta| {
+            // Propagate parse errors: a misspelt key or non-string value must not be
+            // silently ignored (it would fall back to the derived title).
+            let parsed = attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("title") {
                     let value = meta.value()?;
                     let lit: syn::LitStr = value.parse()?;
                     title = Some(lit.value());
+                    Ok(())
                 } else if meta.path.is_ident("description") {
                     let value = meta.value()?;
                     let lit: syn::LitStr = value.parse()?;
                     desc = Some(lit.value());
+                    Ok(())
+                } else {
+                    Err(meta.error(
+                        "unknown `#[step(..)]` key; expected `title = \"..\"` or `description = \"..\"`",
+                    ))
                 }
-                Ok(())
             });
+            if let Err(err) = parsed {
+                return err.to_compile_error().into();
+            }
         }
 
         let t = title.unwrap_or_else(|| pascal_to_title(&ident.to_string()));
@@ -66,9 +76,10 @@ pub fn derive_steps(input: TokenStream) -> TokenStream {
         descriptions.push(d);
     }
 
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let expanded = quote! {
-        impl #name {
-            pub const ALL: &[#name] = &[#(#name::#variant_idents),*];
+        impl #impl_generics #name #ty_generics #where_clause {
+            pub const ALL: &[#name #ty_generics] = &[#(#name::#variant_idents),*];
             pub const COUNT: usize = #count;
             pub const TITLES: &[&str] = &[#(#titles),*];
             pub const DESCRIPTIONS: &[&str] = &[#(#descriptions),*];

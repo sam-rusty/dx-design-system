@@ -14,6 +14,12 @@ use crate::toast::{ToastVariant, use_toast};
 ///
 /// Pass `None` for either message to opt out of that toast/prefix.
 ///
+/// The action is *not* reset after success (so `action.value()` stays readable
+/// by the caller). A component that remounts while the action still holds
+/// `Some(Ok)` therefore re-runs `on_success` and re-shows the toast; create the
+/// action in the same scope as this hook, or `reset()` it inside `on_success`
+/// when that matters.
+///
 /// ```rust, ignore
 /// use_action_feedback(create_action, "Note posted", "Failed to post note", move || {
 ///     form.reset();

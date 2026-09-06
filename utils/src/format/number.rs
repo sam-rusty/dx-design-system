@@ -93,6 +93,25 @@ mod tests {
     }
 
     #[test]
+    fn test_format_number_edge_inputs() {
+        // A lone sign or junk has no digits and no decimal: passed through.
+        assert_eq!(format_number("-"), "-");
+        assert_eq!(format_number("abc"), "abc");
+        // Already grouped input is idempotent.
+        assert_eq!(format_number("1,234"), "1,234");
+        assert_eq!(
+            format_number(format_number("1234567").as_str()),
+            "1,234,567"
+        );
+        // Trailing / leading decimal points are kept.
+        assert_eq!(format_number("1234."), "1,234.");
+        assert_eq!(format_number(".5"), "0.5");
+        // Leading zeros are stripped down to one digit.
+        assert_eq!(format_number("007"), "7");
+        assert_eq!(format_number("0.50"), "0.50");
+    }
+
+    #[test]
     fn test_format_parse_number_roundtrip() {
         let raw = "1234567";
         assert_eq!(parse_number(&format_number(raw)), raw);

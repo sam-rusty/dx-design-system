@@ -1,4 +1,10 @@
+// `rsx!` lowers `attr: if a { .. } else { .. }` into an expression whose layout
+// trips `suspicious_else_formatting`; the source is rustfmt-clean.
+#![allow(clippy::suspicious_else_formatting)]
+
 use dioxus::prelude::*;
+
+use crate::hooks::use_prop_signal;
 use ds_macros::on_web;
 use ds_utils::format::merge;
 
@@ -125,6 +131,45 @@ pub fn rte_insert_text(element_id: &str, text: &str) {
 #[cfg(not(feature = "web"))]
 pub fn rte_insert_text(_element_id: &str, _text: &str) {}
 
+// ── Link sanitising ───────────────────────────────────────────────────────────
+
+/// Allowlist the scheme of a user-entered link before it is written into the
+/// editor's HTML (E1): `http(s):`/`mailto:` pass through, scheme-less input is
+/// promoted to `https://`, anything else (`javascript:`, `data:`, …) is rejected.
+#[cfg_attr(not(feature = "web"), allow(dead_code))]
+pub(crate) fn safe_href(input: &str) -> Option<String> {
+    let t = input.trim();
+    if t.is_empty() {
+        return None;
+    }
+    let lower = t.to_ascii_lowercase();
+    if lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("mailto:")
+        || lower.starts_with("tel:")
+    {
+        return Some(t.to_string());
+    }
+    // Any other explicit scheme (`javascript:`, `data:`, `vbscript:` …) is dropped.
+    // A colon after the first `/` is a path/port, not a scheme.
+    let head = t.split('/').next().unwrap_or(t);
+    if head.contains(':') && !is_host_port(head) {
+        return None;
+    }
+    Some(format!("https://{t}"))
+}
+
+/// `host:1234` — a colon followed only by digits is a port, not a scheme.
+#[cfg_attr(not(feature = "web"), allow(dead_code))]
+fn is_host_port(head: &str) -> bool {
+    match head.split_once(':') {
+        Some((host, port)) => {
+            !host.is_empty() && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit())
+        }
+        None => false,
+    }
+}
+
 // ── Toolbar button ────────────────────────────────────────────────────────────
 
 #[component]
@@ -132,12 +177,22 @@ fn ToolbarBtn(
     active: bool,
     title: String,
     onclick: EventHandler<()>,
+    /// `true` (default): a toggle → `aria-pressed`; `false`: a popover trigger →
+    /// `aria-haspopup` + `aria-expanded`.
+    #[props(default = true)]
+    toggle: bool,
+    #[props(default)] disabled: bool,
     children: Element,
 ) -> Element {
     rsx! {
         button {
             r#type: "button",
             title: "{title}",
+            "aria-label": "{title}",
+            "aria-pressed": toggle.then(|| active.to_string()),
+            "aria-haspopup": (!toggle).then_some("true"),
+            "aria-expanded": (!toggle).then(|| active.to_string()),
+            disabled,
             class: if active {
                 "flex items-center justify-center size-6 rounded cursor-pointer \
                  bg-accent text-accent-foreground transition-colors"
@@ -189,6 +244,10 @@ pub fn RichTextEditorBase(
     #[props(default)] onblur: Option<EventHandler<FocusEvent>>,
     #[props(default)] aria_invalid: Option<String>,
     #[props(default)] aria_describedby: Option<String>,
+    /// Accessible name for the `role="textbox"` content (a `<label for>` cannot
+    /// target a `div`). Form usage passes the field label.
+    #[props(default)]
+    aria_label: Option<String>,
     /// Inline mode: no border/background on wrapper; toolbar floats above the content.
     /// Pass `content_class` + `content_style` to match the surrounding element's visual state.
     #[props(default)]
@@ -217,6 +276,7 @@ pub fn RichTextEditorBase(
                 disabled: disabled,
                 "aria-invalid": aria_invalid,
                 "aria-describedby": aria_describedby,
+                "aria-label": aria_label,
             }
         };
     }
@@ -240,6 +300,12 @@ pub fn RichTextEditorBase(
         let mut color_open = use_signal(|| false);
         let mut font_size_open = use_signal(|| false);
 
+        // Empty means "no visible text": browsers leave `<div><br></div>` / `<br>`
+        // behind after select-all + delete, so the HTML alone is not a reliable test.
+        fn editor_is_empty(el: &web_sys::HtmlElement) -> bool {
+            el.inner_text().trim().is_empty()
+        }
+
         // Sync external value changes (e.g. async template loading) into the editor.
         use_effect(move || {
             let new_val = value.map(|s| s()).unwrap_or_default();
@@ -247,7 +313,7 @@ pub fn RichTextEditorBase(
                 *last_user_html.write() = new_val.clone();
                 if let Some(el) = editor_ref.peek().as_ref() {
                     el.set_inner_html(&new_val);
-                    is_empty.set(new_val.is_empty());
+                    is_empty.set(editor_is_empty(el));
                 }
             }
         });
@@ -296,6 +362,7 @@ pub fn RichTextEditorBase(
                         ToolbarBtn {
                             active: is_bold(),
                             title: "Bold",
+                            disabled,
                             onclick: move |_| {
                                 exec_cmd("bold");
                                 is_bold.set(query_cmd("bold"));
@@ -307,6 +374,7 @@ pub fn RichTextEditorBase(
                         ToolbarBtn {
                             active: is_italic(),
                             title: "Italic",
+                            disabled,
                             onclick: move |_| {
                                 exec_cmd("italic");
                                 is_italic.set(query_cmd("italic"));
@@ -331,6 +399,8 @@ pub fn RichTextEditorBase(
                                 ToolbarBtn {
                                     active: font_size_open(),
                                     title: "Font Size",
+                                    toggle: false,
+                                    disabled,
                                     onclick: move |_| {
                                         js::rteSaveSelection();
                                         *font_size_open.write() ^= true;
@@ -377,6 +447,8 @@ pub fn RichTextEditorBase(
                                 ToolbarBtn {
                                     active: color_open(),
                                     title: "Text Color",
+                                    toggle: false,
+                                    disabled,
                                     onclick: move |_| {
                                         js::rteSaveSelection();
                                         *color_open.write() ^= true;
@@ -428,18 +500,21 @@ pub fn RichTextEditorBase(
                         ToolbarBtn {
                             active: false,
                             title: "Align Left",
+                            disabled,
                             onclick: move |_| exec_cmd("justifyLeft"),
                             Icon { name: IconName::AlignLeft, class: "size-3.5" }
                         }
                         ToolbarBtn {
                             active: false,
                             title: "Align Center",
+                            disabled,
                             onclick: move |_| exec_cmd("justifyCenter"),
                             Icon { name: IconName::AlignCenter, class: "size-3.5" }
                         }
                         ToolbarBtn {
                             active: false,
                             title: "Align Right",
+                            disabled,
                             onclick: move |_| exec_cmd("justifyRight"),
                             Icon { name: IconName::AlignRight, class: "size-3.5" }
                         }
@@ -459,6 +534,8 @@ pub fn RichTextEditorBase(
                                 ToolbarBtn {
                                     active: link_open(),
                                     title: "Insert Link",
+                                    toggle: false,
+                                    disabled,
                                     onclick: move |_| {
                                         js::rteSaveSelection();
                                         *link_open.write() ^= true;
@@ -493,8 +570,7 @@ pub fn RichTextEditorBase(
                                                 text-primary-foreground hover:bg-primary/90 \
                                                 cursor-pointer transition-colors",
                                         onclick: move |_| {
-                                            let url = link_url.peek().clone();
-                                            if !url.is_empty() {
+                                            if let Some(url) = safe_href(&link_url.peek()) {
                                                 js::rteRestoreSelection();
                                                 exec_cmd_value("createLink", &url);
                                             }
@@ -524,6 +600,7 @@ pub fn RichTextEditorBase(
                         "data-name": "RichTextEditorContent",
                         role: "textbox",
                         "aria-multiline": "true",
+                        "aria-label": aria_label.clone(),
                         "aria-disabled": if disabled { "true" },
                         class: if inline {
                             merge(&["outline-none", &content_class])
@@ -540,7 +617,7 @@ pub fn RichTextEditorBase(
                             if let Ok(el) = web_el.dyn_into::<web_sys::HtmlElement>() {
                                 let html = value.map(|s| s.peek().clone()).unwrap_or_default();
                                 el.set_inner_html(&html);
-                                is_empty.set(html.is_empty());
+                                is_empty.set(editor_is_empty(&el));
                                 *editor_ref.write() = Some(el);
                             }
                         },
@@ -548,7 +625,7 @@ pub fn RichTextEditorBase(
                             if let Some(el) = editor_ref.peek().as_ref() {
                                 let html = el.inner_html();
                                 *last_user_html.write() = html.clone();
-                                is_empty.set(html.is_empty() || html == "<br>");
+                                is_empty.set(editor_is_empty(el));
                                 is_bold.set(query_cmd("bold"));
                                 is_italic.set(query_cmd("italic"));
                                 if let Some(mut sig) = value {
@@ -578,6 +655,7 @@ pub fn RichTextEditorBase(
 #[component]
 pub(crate) fn RichTextEditorFormControl(
     #[props(default)] autofocus: bool,
+    #[props(default)] aria_label: Option<String>,
     #[props(default = true)] show_bold: bool,
     #[props(default = true)] show_italic: bool,
     #[props(default = true)] show_font_size: bool,
@@ -592,7 +670,7 @@ pub(crate) fn RichTextEditorFormControl(
     let id = String::from(&*field_name);
     let aria_describedby = format!("{}-error", field_name);
 
-    let is_disabled = form_ctx.disabled.map(|d| d()).unwrap_or(false);
+    let is_disabled = form_ctx.disabled.is_some_and(|d| *d.read());
 
     let is_touched = form_ctx.aux.with(|a| a.is_touched(&field_name));
     let has_error = form_ctx.aux.with(|a| a.error(&field_name).is_some());
@@ -605,8 +683,9 @@ pub(crate) fn RichTextEditorFormControl(
     let value = form_ctx
         .values_signal
         .with(|v| v.get(&*field_name).cloned().unwrap_or_default());
-    let mut value_sig = use_signal(|| value.clone());
-    value_sig.set(value);
+    // Compare-and-set: an unconditional write every render would notify every
+    // subscriber (and the editor's sync effect) even when nothing changed.
+    let value_sig = use_prop_signal(value);
 
     rsx! {
         RichTextEditorBase {
@@ -621,6 +700,7 @@ pub(crate) fn RichTextEditorFormControl(
             show_link: show_link,
             aria_invalid: aria_invalid,
             aria_describedby: aria_describedby,
+            aria_label: aria_label,
             value: Some(value_sig),
             on_change: {
                 let field_name = field_name.clone();
@@ -663,6 +743,7 @@ pub fn RichTextEditor(
             div { class: "relative w-full",
                 RichTextEditorFormControl {
                     autofocus: autofocus,
+                    aria_label: label.clone(),
                     show_bold: show_bold,
                     show_italic: show_italic,
                     show_font_size: show_font_size,
@@ -673,5 +754,43 @@ pub fn RichTextEditor(
             }
             FormError {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_href;
+
+    #[test]
+    fn safe_href_allows_http_https_mailto() {
+        assert_eq!(
+            safe_href("https://example.com/a?b=1").as_deref(),
+            Some("https://example.com/a?b=1")
+        );
+        assert_eq!(safe_href("HTTP://x.y").as_deref(), Some("HTTP://x.y"));
+        assert_eq!(safe_href(" mailto:a@b.c ").as_deref(), Some("mailto:a@b.c"));
+    }
+
+    #[test]
+    fn safe_href_rejects_script_and_data_schemes() {
+        assert_eq!(safe_href("javascript:alert(1)"), None);
+        assert_eq!(safe_href("JavaScript:alert(1)"), None);
+        assert_eq!(safe_href(" data:text/html;base64,AAAA"), None);
+        assert_eq!(safe_href("vbscript:x"), None);
+        assert_eq!(safe_href(""), None);
+        assert_eq!(safe_href("   "), None);
+    }
+
+    #[test]
+    fn safe_href_promotes_bare_hosts_to_https() {
+        assert_eq!(
+            safe_href("example.com/path:with:colons").as_deref(),
+            Some("https://example.com/path:with:colons")
+        );
+        assert_eq!(
+            safe_href("localhost:8080/x").as_deref(),
+            Some("https://localhost:8080/x")
+        );
+        assert_eq!(safe_href("foo:bar"), None);
     }
 }

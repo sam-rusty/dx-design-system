@@ -9,17 +9,6 @@
 
 use dioxus::prelude::*;
 
-/// The controlled-or-uncontrolled prop trio that always travels together.
-///
-/// `value` is the (optional) externally-controlled value, `default` the initial
-/// value used when uncontrolled, and `on_change` is fired on every mutation.
-#[derive(Clone, Copy)]
-pub(crate) struct Controlled<T: Clone + PartialEq + 'static> {
-    pub(crate) value: ReadSignal<Option<T>>,
-    pub(crate) default: ReadSignal<T>,
-    pub(crate) on_change: Callback<T>,
-}
-
 /// Allow some state to be either controlled or uncontrolled.
 ///
 /// Returns the current value (reactive) and a setter. When `prop` is `Some`, the

@@ -166,14 +166,6 @@ impl FocusState {
         self.set_focus(self.last_enabled_index());
     }
 
-    pub(crate) fn focus_next_from_current(&mut self, indices: &[usize]) {
-        self.focus_next_from(self.current_focus(), indices);
-    }
-
-    pub(crate) fn focus_prev_from_current(&mut self, indices: &[usize]) {
-        self.focus_prev_from(self.current_focus(), indices);
-    }
-
     pub(crate) fn blur(&mut self) {
         self.set_focus(None);
     }
@@ -184,10 +176,6 @@ impl FocusState {
 
     pub(crate) fn is_focused(&self, id: usize) -> bool {
         (self.current_focus)().map(|x| x == id).unwrap_or(false)
-    }
-
-    pub(crate) fn current_focus(&self) -> Option<usize> {
-        (self.current_focus)()
     }
 
     pub(crate) fn recent_focus(&self) -> Option<usize> {

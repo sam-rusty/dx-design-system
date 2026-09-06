@@ -15,6 +15,14 @@ pub fn Avatar(
     children: Element,
 ) -> Element {
     let mut errored = use_signal(|| false);
+    // A new `src` deserves a fresh attempt; without this a single 404 would hide
+    // every later image.
+    use_effect(use_reactive!(|src| {
+        let _ = &src;
+        if *errored.peek() {
+            errored.set(false);
+        }
+    }));
 
     let class = merge(&[BASE_CLASS, &class]);
     let has_src = src.as_deref().is_some_and(|s| !s.is_empty());

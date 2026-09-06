@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 use time::Date;
 
+use super::month_view::is_activation_key;
 use crate::button::{Button, ButtonSize, ButtonVariant};
 
 /// 0.8 px per minute → 48 px per hour (matches `w-12` gutter = 3rem = 48px)
@@ -22,7 +23,8 @@ pub struct TimeGridEvent {
 ///
 /// The parent owns `day` and `events` signals — this component renders only.
 /// Navigation chrome, timezone handling, and current-time indicators are the parent's
-/// responsibility.
+/// responsibility. An `end_hour` below `start_hour` renders an empty grid.
+/// Hour rows are keyboard-reachable (`role="button"`, Enter/Space activate).
 #[component]
 pub fn TimeGrid(
     day: ReadSignal<Date>,
@@ -33,7 +35,7 @@ pub fn TimeGrid(
     on_event_click: EventHandler<String>,
 ) -> Element {
     let start_min = (start_hour as u16) * 60;
-    let end_min = (end_hour as u16) * 60;
+    let end_min = ((end_hour as u16) * 60).max(start_min);
     let visible_minutes = end_min - start_min;
     let total_height = visible_minutes as f32 * PX_PER_MINUTE;
 
@@ -60,7 +62,7 @@ pub fn TimeGrid(
                     style: "height: {total_height}px;",
 
                     // Hour row background stripes — clickable
-                    for hour in (start_hour as u16)..(end_hour as u16) {
+                    for hour in (start_min / 60)..(end_min / 60) {
                         HourRow {
                             key: "{hour}",
                             hour,
@@ -160,7 +162,16 @@ fn HourRow(hour: u16, start_min: u16, on_slot_click: EventHandler<u16>) -> Eleme
             class: "absolute left-0 right-0 border-b border-border/50 flex items-start \
                     hover:bg-accent/20 transition-colors cursor-pointer select-none",
             style: "top: {top}px; height: {height}px;",
+            role: "button",
+            tabindex: "0",
+            "aria-label": "{label}",
             onclick: move |_| on_slot_click.call(slot_minute),
+            onkeydown: move |e| {
+                if is_activation_key(&e.key()) {
+                    e.prevent_default();
+                    on_slot_click.call(slot_minute);
+                }
+            },
 
             span {
                 class: "text-[10px] text-muted-foreground w-12 pl-2 pt-0.5 shrink-0",
@@ -218,5 +229,84 @@ fn EventBlock(
                 "{event.label}"
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ev(id: &str, start: u16, end: u16) -> TimeGridEvent {
+        TimeGridEvent {
+            id: id.to_string(),
+            start_minute: start,
+            end_minute: end,
+            label: id.to_string(),
+            muted: false,
+        }
+    }
+
+    fn lanes(result: &[(TimeGridEvent, usize, usize)]) -> Vec<(&str, usize, usize)> {
+        result
+            .iter()
+            .map(|(e, i, n)| (e.id.as_str(), *i, *n))
+            .collect()
+    }
+
+    #[test]
+    fn assign_columns_empty() {
+        assert!(assign_columns(vec![]).is_empty());
+    }
+
+    #[test]
+    fn assign_columns_disjoint_events_get_full_width() {
+        let r = assign_columns(vec![ev("b", 600, 660), ev("a", 540, 570)]);
+        assert_eq!(lanes(&r), vec![("a", 0, 1), ("b", 0, 1)]);
+    }
+
+    #[test]
+    fn assign_columns_overlapping_pair_splits_in_two() {
+        let r = assign_columns(vec![ev("a", 540, 600), ev("b", 555, 630)]);
+        assert_eq!(lanes(&r), vec![("a", 0, 2), ("b", 1, 2)]);
+    }
+
+    #[test]
+    fn assign_columns_nested_event_shares_cluster() {
+        let r = assign_columns(vec![ev("outer", 540, 720), ev("inner", 600, 630)]);
+        assert_eq!(lanes(&r), vec![("outer", 0, 2), ("inner", 1, 2)]);
+    }
+
+    #[test]
+    fn assign_columns_chain_overlap_reuses_freed_lane() {
+        // a overlaps b, b overlaps c, but c starts after a ends → c reuses lane 0.
+        let r = assign_columns(vec![
+            ev("a", 540, 600),
+            ev("b", 570, 660),
+            ev("c", 600, 690),
+        ]);
+        assert_eq!(lanes(&r), vec![("a", 0, 2), ("b", 1, 2), ("c", 0, 2)]);
+    }
+
+    #[test]
+    fn assign_columns_touching_intervals_do_not_overlap() {
+        // end == start is a separate cluster (exclusive upper bound).
+        let r = assign_columns(vec![ev("a", 540, 600), ev("b", 600, 660)]);
+        assert_eq!(lanes(&r), vec![("a", 0, 1), ("b", 0, 1)]);
+    }
+
+    #[test]
+    fn assign_columns_clusters_are_independent() {
+        let r = assign_columns(vec![
+            ev("a", 540, 600),
+            ev("b", 570, 630),
+            ev("c", 800, 860),
+        ]);
+        assert_eq!(lanes(&r), vec![("a", 0, 2), ("b", 1, 2), ("c", 0, 1)]);
+    }
+
+    #[test]
+    fn assign_columns_same_start_longer_first() {
+        let r = assign_columns(vec![ev("short", 540, 570), ev("long", 540, 660)]);
+        assert_eq!(lanes(&r), vec![("long", 0, 2), ("short", 1, 2)]);
     }
 }

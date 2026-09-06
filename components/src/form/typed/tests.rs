@@ -31,6 +31,7 @@ struct OrderForm {
     address: Address,
     items: Vec<LineItem>,
     tags: Option<Vec<String>>,
+    shipping: Option<Address>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, FormOptions)]
@@ -363,6 +364,182 @@ fn registry_required_check_blocks_submit() {
             form.validate_and_get().is_some(),
             "unregistered field not checked"
         );
+    });
+}
+
+/// Two mounted `FormField` instances re-keying under `rows.swap` /
+/// `rows.remove` (A2): the re-key order is "old instance unregisters, new
+/// path registers" per instance, and the dropped instance's `use_drop`
+/// fires after its sibling has already shifted into the freed path.
+#[test]
+fn registry_unregister_is_owner_aware() {
+    in_runtime(|| {
+        let form = new_form();
+        let rows = form.rows(OrderForm::items);
+        rows.push(LineItem::default());
+        rows.push(LineItem::default());
+        let qty0 = OrderForm::items.nth(0).then(LineItem::qty);
+        let qty1 = OrderForm::items.nth(1).then(LineItem::qty);
+        let a = form.field(qty0);
+        a.register();
+        let b = form.field(qty1);
+        b.register();
+
+        rows.swap(0, 1);
+        let a2 = form.field(qty1);
+        a.unregister();
+        a2.register();
+        let b2 = form.field(qty0);
+        b.unregister();
+        b2.register();
+        {
+            let reg = form.registry.peek();
+            assert!(reg.contains_key("items.0.qty"), "swap kept row 0");
+            assert!(reg.contains_key("items.1.qty"), "swap kept row 1");
+        }
+
+        rows.remove(0);
+        let a3 = form.field(qty0);
+        a2.unregister();
+        a3.register();
+        b2.unregister();
+        {
+            let reg = form.registry.peek();
+            assert!(reg.contains_key("items.0.qty"), "survivor stays registered");
+            assert!(!reg.contains_key("items.1.qty"));
+        }
+
+        // The surviving registration still drives the required check.
+        form.set(OrderForm::name, "Ada".to_string());
+        form.set(
+            OrderForm::address.then(Address::street),
+            "Main St".to_string(),
+        );
+        assert!(form.validate_and_get().is_none());
+        assert_eq!(form.error("items.0.qty"), Some("Qty is required".into()));
+    });
+}
+
+/// A8: after `default_values`, `rows.clear()` + `rows.push()` renders the new
+/// row's fields blank, like the non-`default_values` path.
+#[test]
+fn rows_cleared_under_default_values_render_blank() {
+    in_runtime(|| {
+        let form = new_form();
+        form.default_values(OrderForm {
+            items: vec![LineItem {
+                product: "a".into(),
+                qty: 1,
+            }],
+            ..Default::default()
+        });
+        let rows = form.rows(OrderForm::items);
+        let qty0 = OrderForm::items.nth(0).then(LineItem::qty);
+        assert_eq!(form.display(qty0), "1");
+
+        rows.clear();
+        rows.push(LineItem::default());
+        assert_eq!(form.display(qty0), "", "new row is pristine");
+        assert_eq!(
+            form.display(OrderForm::items.nth(0).then(LineItem::product)),
+            ""
+        );
+        assert_eq!(form.display(OrderForm::name), "", "blanket still on");
+        assert!(form.aux.peek().is_written("active"));
+
+        form.set(qty0, 3);
+        assert_eq!(form.display(qty0), "3");
+    });
+}
+
+#[test]
+fn reset_after_default_values_returns_to_pristine() {
+    in_runtime(|| {
+        let form = new_form();
+        form.default_values(OrderForm {
+            name: "Ada".into(),
+            active: true,
+            ..Default::default()
+        });
+        form.touch_field("name");
+        form.reset();
+        assert_eq!(form.display(OrderForm::name), "");
+        assert_eq!(form.display(OrderForm::active), "");
+        assert!(!form.is_touched("name"));
+        assert_eq!(form.get_data(), OrderForm::default());
+    });
+}
+
+#[test]
+fn some_lens_reads_none_and_materializes_on_write() {
+    in_runtime(|| {
+        let form = new_form();
+        let zip = OrderForm::shipping.some().then(Address::zip);
+        assert_eq!(zip.path(), "shipping.zip", "`some()` is path-transparent");
+        assert_eq!(form.get_untracked(zip), None);
+        assert_eq!(form.display(zip), "");
+
+        form.set_text(zip, "90210");
+        assert_eq!(
+            form.get_data().shipping.map(|a| a.zip),
+            Some("90210".to_string())
+        );
+        assert_eq!(form.display(zip), "90210");
+
+        let binding = form.field(zip);
+        assert_eq!(binding.value(), Some("90210".to_string()));
+        binding.clear();
+        assert_eq!(form.get_data().shipping.map(|a| a.zip), Some(String::new()));
+        assert_eq!(binding.display(), "");
+    });
+}
+
+/// Precedence when every source fails at once: overlay parse error, then the
+/// `Validate` message, then required-but-empty.
+#[test]
+fn error_precedence_overlay_validate_required() {
+    in_runtime(|| {
+        let form = new_form();
+        // required-but-empty only (no `Validate` rule on zip)
+        let zip = form.field(OrderForm::address.then(Address::zip));
+        zip.register();
+        form.touch_field("address.zip");
+        assert_eq!(form.error("address.zip"), Some("Zip is required".into()));
+
+        // `Validate` beats required: street is empty *and* too short
+        let street = OrderForm::address.then(Address::street);
+        form.field(street).register();
+        form.touch_field("address.street");
+        assert_eq!(
+            form.error("address.street"),
+            Some("Street too short".into())
+        );
+
+        // overlay beats `Validate`: an unparseable number on a touched field
+        let age = form.field(OrderForm::age);
+        age.register();
+        age.commit_text("3x");
+        assert_eq!(age.error(), Some("Enter a valid number".into()));
+
+        // submit-time: overlay message wins over validate/required per field
+        assert!(form.validate_and_get().is_none());
+        assert_eq!(form.error("age"), Some("Enter a valid number".into()));
+        assert_eq!(
+            form.error("address.street"),
+            Some("Street too short".into())
+        );
+        assert_eq!(form.error("address.zip"), Some("Zip is required".into()));
+        assert_eq!(form.error("name"), Some("Name is required".into()));
+    });
+}
+
+#[test]
+fn server_error_other_sets_global_only() {
+    in_runtime(|| {
+        let form = new_form();
+        form.set_server_error(ds_utils::DsError::Other("Boom".into()));
+        assert_eq!(form.global_error(), Some("Boom".into()));
+        assert_eq!(form.error("name"), None);
     });
 }
 

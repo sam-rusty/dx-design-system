@@ -23,6 +23,9 @@ pub fn Link(
     #[props(optional)] onclick: EventHandler<MouseEvent>,
     #[props(optional)] variant: ButtonVariant,
     #[props(optional)] size: ButtonSize,
+    /// Extra attributes forwarded to the anchor (`role`, `aria-*`, `data-*`, `id`).
+    #[props(extends = GlobalAttributes)]
+    attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let is_button = r#type
@@ -51,6 +54,7 @@ pub fn Link(
             new_tab,
             title,
             style,
+            attributes,
             {children}
         }
     }

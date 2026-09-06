@@ -34,6 +34,10 @@ pub(super) struct RegisteredField {
     pub label: &'static str,
     pub required: bool,
     pub is_empty: Rc<dyn Fn() -> bool>,
+    /// The binding instance that registered this entry; `unregister` only
+    /// removes an entry it owns, so a sibling that re-keyed into this path
+    /// first (row swap/remove) keeps its registration.
+    pub owner: Rc<()>,
 }
 
 pub struct Form<T: 'static> {
@@ -232,7 +236,7 @@ impl<T: TypedFormData> Form<T> {
         let mut data = self.data;
         *data.write() = values;
         let mut aux = self.aux;
-        aux.write().all_written = true;
+        aux.write().mark_all_written();
     }
 
     pub fn reset(&self) {
@@ -266,7 +270,7 @@ impl<T: TypedFormData> Form<T> {
             if field.required && (field.is_empty)() {
                 new_errors
                     .entry(path.clone())
-                    .or_insert_with(|| format!("{} is required", field.label));
+                    .or_insert_with(|| required_message(path, field.label));
             }
         }
 
@@ -361,16 +365,21 @@ impl<T: TypedFormData> Form<T> {
             && field.required
             && (field.is_empty)()
         {
-            let label = if field.label.is_empty() {
-                let leaf = path.rsplit('.').next().unwrap_or(path);
-                snake_to_title(leaf)
-            } else {
-                field.label.to_string()
-            };
-            return Some(format!("{label} is required"));
+            return Some(required_message(path, field.label));
         }
 
         None
+    }
+}
+
+/// "`<Label>` is required", falling back to the title-cased leaf segment of
+/// `path` when the lens carries no label.
+fn required_message(path: &str, label: &str) -> String {
+    if label.is_empty() {
+        let leaf = path.rsplit('.').next().unwrap_or(path);
+        format!("{} is required", snake_to_title(leaf))
+    } else {
+        format!("{label} is required")
     }
 }
 
@@ -384,7 +393,9 @@ impl<T: TypedFormData> Form<T> {
     {
         let form = *self;
         let path: Rc<str> = lens.path().into();
+        let owner = Rc::new(());
 
+        // Untracked probe for the submit-time registry.
         let is_empty = {
             let path = path.clone();
             move || {
@@ -401,6 +412,7 @@ impl<T: TypedFormData> Form<T> {
             label: lens.label(),
             required: lens.required(),
             form_scope: self.data.origin_scope(),
+            owner: owner.clone(),
             display: Rc::new(move || form.display(lens)),
             set_text: Rc::new(move |text| form.set_text(lens, text)),
             touch: {
@@ -416,13 +428,21 @@ impl<T: TypedFormData> Form<T> {
                 let path = path.clone();
                 Rc::new(move || form.is_touched(&path))
             },
+            // Reactive twin of `is_empty`: subscribes the reader (e.g.
+            // `FieldActions`) to the aux + data signals.
             has_value: {
-                let is_empty = is_empty.clone();
-                Rc::new(move || !is_empty())
+                let path = path.clone();
+                Rc::new(move || {
+                    form.aux.read().is_written(&path)
+                        && lens
+                            .get(&form.data.read())
+                            .is_some_and(|v| !v.is_empty_value())
+                })
             },
             register: {
                 let path = path.clone();
                 let is_empty = is_empty.clone();
+                let owner = owner.clone();
                 let label = lens.label();
                 let required = lens.required();
                 Rc::new(move || {
@@ -433,6 +453,7 @@ impl<T: TypedFormData> Form<T> {
                             label,
                             required,
                             is_empty: Rc::new(is_empty.clone()),
+                            owner: owner.clone(),
                         },
                     );
                 })
@@ -441,7 +462,13 @@ impl<T: TypedFormData> Form<T> {
                 let path = path.clone();
                 Rc::new(move || {
                     let registry = form.registry;
-                    registry.write_unchecked().remove(&*path);
+                    let mut reg = registry.write_unchecked();
+                    if reg
+                        .get(&*path)
+                        .is_some_and(|f| Rc::ptr_eq(&f.owner, &owner))
+                    {
+                        reg.remove(&*path);
+                    }
                 })
             },
             path,
@@ -493,12 +520,17 @@ where
 
     pub fn push(&self, item: E) {
         let path = self.lens.path();
-        {
+        let index = {
             let mut data = self.form.data;
-            self.lens.get_mut(&mut data.write()).push(item);
-        }
+            let mut w = data.write();
+            let vec = self.lens.get_mut(&mut w);
+            vec.push(item);
+            vec.len() - 1
+        };
         let mut aux = self.form.aux;
-        aux.write().mark_written(&path);
+        let mut a = aux.write();
+        a.mark_written(&path);
+        a.mark_row_pristine(&path, index);
     }
 
     pub fn insert(&self, index: usize, item: E) {
@@ -515,6 +547,7 @@ where
         let mut a = aux.write();
         a.insert_row(&path, index);
         a.mark_written(&path);
+        a.mark_row_pristine(&path, index);
     }
 
     pub fn remove(&self, index: usize) {

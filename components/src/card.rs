@@ -48,17 +48,35 @@ pub fn Card(
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
+    let clickable = onclick.is_some();
+    // Keyboard parity for both render paths: Enter / Space activate like a button.
+    let onkeydown = move |e: KeyboardEvent| {
+        let Some(cb) = onclick else { return };
+        match e.key() {
+            Key::Enter => cb.call(()),
+            Key::Character(c) if c == " " => {
+                e.prevent_default();
+                cb.call(());
+            }
+            _ => {}
+        }
+    };
+    let onclick = move |_| {
+        if let Some(cb) = onclick {
+            cb.call(());
+        }
+    };
+
     if let Some(variant) = variant {
         let class = merge(&[variant.class(), &class]);
         return rsx! {
             div {
                 class,
                 "data-name": "Box",
-                onclick: move |_| {
-                    if let Some(cb) = onclick {
-                        cb.call(());
-                    }
-                },
+                role: clickable.then_some("button"),
+                tabindex: clickable.then_some("0"),
+                onclick,
+                onkeydown,
                 ..attributes,
                 {children}
             }
@@ -71,7 +89,6 @@ pub fn Card(
     } else {
         DEFAULT_PADDING
     };
-    let clickable = onclick.is_some();
     let outer = merge(&["rounded-xl min-w-0", &class]);
     let inner = merge(&[BASE_CLASS, padding, height]);
 
@@ -81,22 +98,8 @@ pub fn Card(
             style: SHADOW,
             role: clickable.then_some("button"),
             tabindex: clickable.then_some("0"),
-            onclick: move |_| {
-                if let Some(cb) = onclick {
-                    cb.call(());
-                }
-            },
-            onkeydown: move |e: KeyboardEvent| {
-                let Some(cb) = onclick else { return };
-                match e.key() {
-                    Key::Enter => cb.call(()),
-                    Key::Character(c) if c == " " => {
-                        e.prevent_default();
-                        cb.call(());
-                    }
-                    _ => {}
-                }
-            },
+            onclick,
+            onkeydown,
             ..attributes,
             div { class: "{inner}", {children} }
         }

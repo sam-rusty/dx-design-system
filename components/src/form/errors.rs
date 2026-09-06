@@ -54,13 +54,21 @@ pub(crate) fn field_validation_error(
     out
 }
 
+/// Field entries in deterministic (name-sorted) order, so a parent prefix
+/// bubbles up the same child message on every run.
+fn sorted_entries(errors: &ValidationErrors) -> Vec<(&str, &ValidationErrorsKind)> {
+    let mut entries: Vec<_> = errors.errors().iter().map(|(k, v)| (&**k, v)).collect();
+    entries.sort_by_key(|(k, _)| *k);
+    entries
+}
+
 fn extract_recursive(
     errors: &ValidationErrors,
     prefix: &str,
     style: ListIndexStyle,
     map: &mut HashMap<String, String>,
 ) {
-    for (field, kind) in errors.errors() {
+    for (field, kind) in sorted_entries(errors) {
         let path = join(prefix, field);
         match kind {
             ValidationErrorsKind::Field(errs) => {
@@ -94,7 +102,7 @@ fn find_recursive(
     style: ListIndexStyle,
     out: &mut Option<String>,
 ) {
-    for (field, kind) in errors.errors() {
+    for (field, kind) in sorted_entries(errors) {
         let path = join(prefix, field);
         match kind {
             ValidationErrorsKind::Field(errs) => {

@@ -4,10 +4,12 @@ use ds_utils::classes;
 use crate::field_name::Field;
 use crate::form::use_field_binding;
 use crate::form::view::FormFieldFrame;
-use crate::hooks::{use_escape_listener, use_outside_dismiss, use_unique_id};
+use crate::hooks::{use_escape_listener_open, use_outside_dismiss, use_unique_id};
 use crate::icon::{Icon, IconName};
 use crate::input::FieldSize;
 
+/// Multi-select values travel as a JSON array of strings. Anything else
+/// (invalid JSON, an array of numbers) is treated as "nothing selected".
 fn parse_multi_value(raw: &str) -> Vec<String> {
     if raw.is_empty() {
         return Vec::new();
@@ -27,6 +29,34 @@ fn toggle_value(current: &str, val: &str) -> String {
         vals.push(val.to_string());
     }
     join_multi_value(&vals)
+}
+
+/// Next/previous entry of `vis` relative to `current` (an option index), wrapping
+/// at both ends. A `current` that is not visible restarts from the first/last.
+fn next_visible(vis: &[usize], current: Option<usize>, forward: bool) -> Option<usize> {
+    let (first, last) = (*vis.first()?, *vis.last()?);
+    let pos = current.and_then(|cur| vis.iter().position(|&i| i == cur));
+    Some(match (pos, forward) {
+        (Some(pos), true) => vis.get(pos + 1).copied().unwrap_or(first),
+        (Some(0), false) => last,
+        (Some(pos), false) => vis[pos - 1],
+        (None, true) => first,
+        (None, false) => last,
+    })
+}
+
+/// First visible option whose label starts with `ch` (ASCII case-insensitive).
+fn typeahead_index<'a>(
+    vis: &[usize],
+    label_of: impl Fn(usize) -> Option<&'a str>,
+    ch: char,
+) -> Option<usize> {
+    let ch = ch.to_ascii_lowercase();
+    vis.iter().copied().find(|&i| {
+        label_of(i)
+            .map(|l| l.to_lowercase().starts_with(ch))
+            .unwrap_or(false)
+    })
 }
 
 /// One registered `<SelectOption>`, in declaration (mount) order. Keyed by a
@@ -65,10 +95,12 @@ impl SelectContext {
     /// option's stable per-instance id.
     fn register(&self, key: String, value: String, label: String) {
         let mut options = self.options;
-        let needs = options.with(|o| match o.iter().find(|e| e.key == key) {
+        // `peek`: the registering option must not subscribe to the registry
+        // (every later sibling's registration would re-render it).
+        let needs = match options.peek().iter().find(|e| e.key == key) {
             Some(e) => e.value != value || e.label != label,
             None => true,
-        });
+        };
         if needs {
             let mut o = options.write();
             if let Some(e) = o.iter_mut().find(|e| e.key == key) {
@@ -86,7 +118,27 @@ impl SelectContext {
     }
 
     fn index_of_key(&self, key: &str) -> Option<usize> {
-        self.options.read().iter().position(|e| e.key == key)
+        self.options.peek().iter().position(|e| e.key == key)
+    }
+
+    /// The single close path: hides the list and clears the search filter so a
+    /// reopen (ArrowDown, click) never shows a stale query.
+    fn close(&self) {
+        let mut is_open = self.is_open;
+        let mut search_query = self.search_query;
+        if *is_open.peek() {
+            is_open.set(false);
+        }
+        if !search_query.peek().is_empty() {
+            search_query.set(String::new());
+        }
+    }
+
+    fn open(&self) {
+        let mut is_open = self.is_open;
+        if !*is_open.peek() {
+            is_open.set(true);
+        }
     }
 
     fn is_value_selected(&self, val: &str) -> bool {
@@ -122,30 +174,11 @@ impl SelectContext {
 
     /// Move the active descendant to the next/previous visible option (wrapping).
     fn move_active(&self, forward: bool) {
-        let vis = self.visible.read();
-        if vis.is_empty() {
-            return;
-        }
         let mut active = self.active;
-        let next = match (*active.peek()).and_then(|cur| vis.iter().position(|&i| i == cur)) {
-            Some(pos) => {
-                if forward {
-                    vis.get(pos + 1).copied().unwrap_or(vis[0])
-                } else if pos == 0 {
-                    *vis.last().unwrap()
-                } else {
-                    vis[pos - 1]
-                }
-            }
-            None => {
-                if forward {
-                    vis[0]
-                } else {
-                    *vis.last().unwrap()
-                }
-            }
-        };
-        active.set(Some(next));
+        let next = next_visible(&self.visible.read(), *active.peek(), forward);
+        if next.is_some() {
+            active.set(next);
+        }
     }
 
     fn set_active_first(&self) {
@@ -169,19 +202,32 @@ impl SelectContext {
     /// Jump the active descendant to the first visible option whose label
     /// starts with `ch` (case-insensitive) — listbox typeahead.
     fn typeahead(&self, ch: char) {
-        let ch = ch.to_ascii_lowercase();
-        let vis = self.visible.read();
         let options = self.options.read();
-        let found = vis.iter().copied().find(|&i| {
-            options
-                .get(i)
-                .map(|e| e.label.to_lowercase().starts_with(ch))
-                .unwrap_or(false)
-        });
+        let found = typeahead_index(
+            &self.visible.read(),
+            |i| options.get(i).map(|e| e.label.as_str()),
+            ch,
+        );
         if let Some(idx) = found {
             self.active.clone().set(Some(idx));
         }
     }
+
+    /// Multi-select: deselect the most recently selected value (Backspace).
+    fn remove_last_selected(&self) {
+        if let Some((val, _)) = self.selected_items_memo.peek().last() {
+            self.on_select.call(val.clone());
+        }
+    }
+}
+
+/// Label of the registered option whose value is `value`, else `value` itself.
+fn label_for(options: &[OptionEntry], value: &str) -> String {
+    options
+        .iter()
+        .find(|e| e.value == value)
+        .map(|e| e.label.clone())
+        .unwrap_or_else(|| value.to_string())
 }
 
 /// Provide Select contexts for a signal-controlled (non-form) [`SelectBase`].
@@ -244,37 +290,8 @@ fn use_select_contexts_inner(
         out
     });
 
-    let display_label_memo = use_memo(move || {
-        if multiple {
-            parsed_values.with(|vals| {
-                if vals.is_empty() {
-                    return String::new();
-                }
-                let opts = options.read();
-                vals.iter()
-                    .map(|v| {
-                        opts.iter()
-                            .find(|e| &e.value == v)
-                            .map(|e| e.label.clone())
-                            .unwrap_or_else(|| v.clone())
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-        } else {
-            let raw = value();
-            if raw.is_empty() {
-                return String::new();
-            }
-            options
-                .read()
-                .iter()
-                .find(|e| e.value == raw)
-                .map(|e| e.label.clone())
-                .unwrap_or(raw)
-        }
-    });
-
+    // `(value, label)` for every selected value (multi only); the label falls
+    // back to the raw value for options that are not (yet) registered.
     let selected_items_memo = use_memo(move || {
         parsed_values.with(|vals| {
             if vals.is_empty() {
@@ -282,16 +299,26 @@ fn use_select_contexts_inner(
             }
             let opts = options.read();
             vals.iter()
-                .map(|v| {
-                    let label = opts
-                        .iter()
-                        .find(|e| &e.value == v)
-                        .map(|e| e.label.clone())
-                        .unwrap_or_else(|| v.clone());
-                    (v.clone(), label)
-                })
+                .map(|v| (v.clone(), label_for(&opts, v)))
                 .collect()
         })
+    });
+
+    let display_label_memo = use_memo(move || {
+        if multiple {
+            selected_items_memo
+                .read()
+                .iter()
+                .map(|(_, label)| label.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        } else {
+            let raw = value();
+            if raw.is_empty() {
+                return String::new();
+            }
+            label_for(&options.read(), &raw)
+        }
     });
 
     let ctx = SelectContext {
@@ -303,13 +330,19 @@ fn use_select_contexts_inner(
                 if let Some(cb) = on_change {
                     cb.call(new_value);
                 }
-                *search_query.write() = String::new();
+                if !search_query.peek().is_empty() {
+                    search_query.set(String::new());
+                }
             } else {
                 if let Some(cb) = on_change {
                     cb.call(val);
                 }
-                *is_open.write() = false;
-                *search_query.write() = String::new();
+                if *is_open.peek() {
+                    is_open.set(false);
+                }
+                if !search_query.peek().is_empty() {
+                    search_query.set(String::new());
+                }
             }
         }),
         search_query,
@@ -404,16 +437,31 @@ pub fn SelectBase(
     // a stacked Escape listener (so a Select open inside a modal closes only the
     // Select). Replaces the legacy `use_outside_click` (bubbling click + rAF hack).
     let mut root_el = use_signal(|| None::<web_sys::Element>);
-    use_outside_dismiss(root_el, is_open.into(), move || {
-        if is_open() {
-            is_open.set(false);
+    use_outside_dismiss(root_el, is_open.into(), move || ctx.close());
+    use_escape_listener_open(is_open.into(), move || ctx.close());
+
+    // Keyboard users Tab away without a pointer-down or Escape: close when
+    // focus leaves the root (options are `tabindex=-1`, so a click on one
+    // keeps focus inside and does not trip this).
+    let on_focus_out = use_callback(move |ev: FocusEvent| {
+        #[cfg(feature = "web")]
+        {
+            use dioxus::web::WebEventExt;
+            use wasm_bindgen::JsCast;
+            let related = ev
+                .as_web_event()
+                .related_target()
+                .and_then(|t| t.dyn_into::<web_sys::Node>().ok());
+            let inside = match (related.as_ref(), root_el.peek().as_ref()) {
+                (Some(node), Some(root)) => root.contains(Some(node)),
+                _ => false,
+            };
+            if !inside {
+                ctx.close();
+            }
         }
-    });
-    use_escape_listener(move || {
-        if is_open() {
-            is_open.set(false);
-            search_query.set(String::new());
-        }
+        #[cfg(not(feature = "web"))]
+        let _ = ev;
     });
 
     let is_open_val = is_open();
@@ -441,6 +489,9 @@ pub fn SelectBase(
         Key::Enter if is_open() => {
             ev.prevent_default();
             ctx.select_active();
+        }
+        Key::Backspace if ctx.multiple && search_query.peek().is_empty() => {
+            ctx.remove_last_selected();
         }
         _ => {}
     });
@@ -492,6 +543,12 @@ pub fn SelectBase(
                 ctx.typeahead(c);
             }
         }
+        // Tags inside the trigger are not focusable (a button cannot contain
+        // interactive content); Backspace deselects the last tag instead.
+        Key::Backspace if ctx.multiple => {
+            ev.prevent_default();
+            ctx.remove_last_selected();
+        }
         _ => {}
     });
 
@@ -541,10 +598,13 @@ pub fn SelectBase(
         "size-4 shrink-0 text-muted-foreground transition-transform duration-200"
     };
 
+    // Closed: `invisible` (visibility:hidden, still animatable) removes the
+    // panel from the a11y tree and tab order; `aria-hidden` covers ATs that
+    // ignore visibility on `role=listbox`.
     let dropdown_class = if is_open_val {
         "absolute left-0 mt-2 w-full origin-top rounded-xl bg-popover text-popover-foreground p-1 transition-all duration-150 z-50 border border-border shadow-lg opacity-100 scale-100 pointer-events-auto flex flex-col"
     } else {
-        "absolute left-0 mt-2 w-full origin-top rounded-xl bg-popover text-popover-foreground p-1 transition-all duration-150 z-50 border border-border shadow-lg opacity-0 scale-95 pointer-events-none flex flex-col"
+        "absolute left-0 mt-2 w-full origin-top rounded-xl bg-popover text-popover-foreground p-1 transition-all duration-150 z-50 border border-border shadow-lg opacity-0 scale-95 pointer-events-none invisible flex flex-col"
     };
 
     rsx! {
@@ -556,6 +616,7 @@ pub fn SelectBase(
                     root_el.set(Some(el.clone()));
                 }
             },
+            onfocusout: move |ev| on_focus_out.call(ev),
             if show_search && is_multiple {
                 // Multi-select + searchable: tags + inline input
                 div {
@@ -608,6 +669,12 @@ pub fn SelectBase(
                                 *search_query.write() = String::new();
                             }
                         },
+                        // Escape leaves the input focused; a click must reopen.
+                        onclick: move |_| {
+                            if !disabled() {
+                                ctx.open();
+                            }
+                        },
                         onkeydown: move |ev| on_input_key.call(ev),
                     }
                 }
@@ -641,6 +708,12 @@ pub fn SelectBase(
                         if !disabled() && !is_open() {
                             *is_open.write() = true;
                             *search_query.write() = String::new();
+                        }
+                    },
+                    // Escape leaves the input focused; a click must reopen.
+                    onclick: move |_| {
+                        if !disabled() {
+                            ctx.open();
                         }
                     },
                     onkeydown: move |ev| on_input_key.call(ev),
@@ -682,33 +755,22 @@ pub fn SelectBase(
                                     for (val , label) in items {
                                         {
                                             let remove_val = val.clone();
-                                            let remove_key = remove_val.clone();
                                             rsx! {
                                                 span {
                                                     key: "{val}",
                                                     class: "inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground",
                                                     "{label}"
+                                                    // Pointer-only affordance: interactive content
+                                                    // cannot nest inside the trigger `<button>`;
+                                                    // keyboard removal is Backspace on the trigger.
                                                     span {
-                                                        role: "button",
-                                                        tabindex: 0,
-                                                        "aria-label": "Remove {label}",
                                                         class: "inline-flex items-center justify-center rounded-full hover:bg-accent hover:text-accent-foreground cursor-pointer size-4",
+                                                        onmousedown: move |ev| ev.prevent_default(),
                                                         onclick: move |ev| {
                                                             ev.stop_propagation();
                                                             ev.prevent_default();
                                                             if !disabled() {
                                                                 ctx.on_select.call(remove_val.clone());
-                                                            }
-                                                        },
-                                                        onkeydown: move |ev: KeyboardEvent| {
-                                                            let is_activate = ev.key() == Key::Enter
-                                                                || ev.key() == Key::Character(" ".to_string());
-                                                            if is_activate {
-                                                                ev.stop_propagation();
-                                                                ev.prevent_default();
-                                                                if !disabled() {
-                                                                    ctx.on_select.call(remove_key.clone());
-                                                                }
                                                             }
                                                         },
                                                         Icon { name: IconName::X, class: "size-3" }
@@ -760,6 +822,7 @@ pub fn SelectBase(
                 class: "{dropdown_class}",
                 role: "listbox",
                 id: "{listbox_id}",
+                "aria-hidden": (!is_open_val).then_some("true"),
                 "aria-multiselectable": if is_multiple { "true" } else { "false" },
                 "aria-label": aria_label.clone(),
                 div { class: "flex flex-col gap-0.5 max-h-60 overflow-y-auto",
@@ -789,8 +852,12 @@ pub fn SelectOption(value: String, label: String, #[props(default)] class: Strin
     let key = use_unique_id();
     let my_key = key.peek().clone();
 
-    // Idempotent register on render; remove from the ordered registry on unmount
-    // (keeps the registry accurate for dynamic option lists).
+    // Idempotent register on render (not in an effect: effects do not run under
+    // SSR, and the trigger's display label / the listbox's "No records" state
+    // need the registry on the first frame, also for hydration parity). The
+    // registry is only `peek`ed here; the option still re-renders when the
+    // `visible` memo (derived from the registry) changes, so a mount of N
+    // options costs O(N²) renders — acceptable for the list sizes in use.
     ctx.register(my_key.clone(), value.clone(), label.clone());
     use_drop({
         let my_key = my_key.clone();
@@ -830,6 +897,13 @@ pub fn SelectOption(value: String, label: String, #[props(default)] class: Strin
             r#type: "button",
             role: "option",
             id: "{option_id}",
+            // Keep focus on the trigger/search input: browsers that do not focus a
+            // clicked `<button>` (Safari, Firefox on macOS) would otherwise blur the
+            // trigger with a null `relatedTarget`, the root's `onfocusout` would
+            // close the list, and the click would land on a hidden option.
+            onmousedown: move |ev| ev.prevent_default(),
+            // Options are reached via `aria-activedescendant`, never by Tab.
+            tabindex: "-1",
             "aria-selected": "{aria_selected}",
             "data-active": is_active,
             class: "{merged_class}",
@@ -886,7 +960,7 @@ pub(crate) fn SelectControl(
             multiple,
             dynamic,
             size,
-            aria_describedby: binding.aria_describedby.clone(),
+            aria_describedby: binding.aria_describedby_when_invalid(),
             aria_invalid: binding.aria_invalid(),
             aria_label,
             {children}
@@ -967,5 +1041,66 @@ pub fn Select(props: SelectProps) -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_multi_value_accepts_only_json_string_arrays() {
+        assert_eq!(parse_multi_value(""), Vec::<String>::new());
+        assert_eq!(parse_multi_value(r#"["a","b"]"#), vec!["a", "b"]);
+        // Not JSON, and a JSON array of numbers: both mean "nothing selected".
+        assert_eq!(parse_multi_value("a,b"), Vec::<String>::new());
+        assert_eq!(parse_multi_value("[1,2]"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn toggle_value_adds_then_removes() {
+        let one = toggle_value("", "a");
+        assert_eq!(one, r#"["a"]"#);
+        let two = toggle_value(&one, "b");
+        assert_eq!(two, r#"["a","b"]"#);
+        assert_eq!(toggle_value(&two, "a"), r#"["b"]"#);
+        assert_eq!(toggle_value(r#"["b"]"#, "b"), "[]");
+    }
+
+    #[test]
+    fn next_visible_wraps_and_skips_hidden() {
+        let vis = [0usize, 2, 5];
+        assert_eq!(next_visible(&vis, None, true), Some(0));
+        assert_eq!(next_visible(&vis, None, false), Some(5));
+        assert_eq!(next_visible(&vis, Some(0), true), Some(2));
+        assert_eq!(next_visible(&vis, Some(5), true), Some(0));
+        assert_eq!(next_visible(&vis, Some(0), false), Some(5));
+        assert_eq!(next_visible(&vis, Some(2), false), Some(0));
+        // Current is hidden (filtered out): restart from the edge.
+        assert_eq!(next_visible(&vis, Some(3), true), Some(0));
+        assert_eq!(next_visible(&vis, Some(3), false), Some(5));
+        assert_eq!(next_visible(&[], Some(1), true), None);
+    }
+
+    #[test]
+    fn typeahead_matches_first_visible_label_case_insensitively() {
+        let labels = ["Alpha", "bravo", "Beta", "Charlie"];
+        let label_of = |i: usize| labels.get(i).copied();
+        assert_eq!(typeahead_index(&[0, 1, 2, 3], label_of, 'b'), Some(1));
+        assert_eq!(typeahead_index(&[0, 1, 2, 3], label_of, 'B'), Some(1));
+        // Hidden options are skipped.
+        assert_eq!(typeahead_index(&[0, 2, 3], label_of, 'b'), Some(2));
+        assert_eq!(typeahead_index(&[0, 1, 2, 3], label_of, 'z'), None);
+    }
+
+    #[test]
+    fn label_for_falls_back_to_the_raw_value() {
+        let opts = vec![OptionEntry {
+            key: "k".into(),
+            value: "us".into(),
+            label: "United States".into(),
+        }];
+        assert_eq!(label_for(&opts, "us"), "United States");
+        assert_eq!(label_for(&opts, "ca"), "ca");
     }
 }

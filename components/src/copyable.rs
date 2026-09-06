@@ -1,34 +1,11 @@
-#[cfg(feature = "web")]
-use std::cell::RefCell;
-#[cfg(feature = "web")]
-use std::rc::Rc;
-
 use dioxus::prelude::*;
 use ds_utils::format::merge;
 
+use crate::hooks::use_timer;
 use crate::icon::{Icon, IconName};
 
-/// A re-armable, cancel-on-unmount window timer used to flip the "Copied!" state
-/// back after a delay. Replaces the leaked `closure::once_into_js` timer that
-/// could fire `set_copied` on an already-dropped signal.
-#[cfg(feature = "web")]
-#[derive(Default)]
-struct ResetTimer {
-    handle: Option<i32>,
-    _closure: Option<wasm_bindgen::closure::Closure<dyn FnMut()>>,
-}
-
-#[cfg(feature = "web")]
-impl ResetTimer {
-    fn cancel(&mut self) {
-        if let Some(handle) = self.handle.take()
-            && let Some(win) = web_sys::window()
-        {
-            win.clear_timeout_with_handle(handle);
-        }
-        self._closure = None;
-    }
-}
+/// How long the "Copied!" state stays on before flipping back.
+const COPIED_RESET_MS: u32 = 1500;
 
 #[cfg(feature = "web")]
 fn write_clipboard(text: &str) {
@@ -37,10 +14,47 @@ fn write_clipboard(text: &str) {
     }
 }
 
+/// Copy-to-clipboard feedback state: `copied` flips true on [`CopyFeedback::copy`]
+/// and back after [`COPIED_RESET_MS`]. The reset timer is re-armable and cancelled
+/// on unmount (via `hooks::use_timer`), so it can never write a dropped signal.
+#[derive(Clone, Copy)]
+pub(crate) struct CopyFeedback {
+    pub(crate) copied: Signal<bool>,
+    copy: Callback<String>,
+}
+
+impl CopyFeedback {
+    /// Write `text` to the clipboard (no-op for empty text) and show feedback.
+    pub(crate) fn copy(&self, text: String) {
+        self.copy.call(text);
+    }
+}
+
+/// Hook-shaped replacement for [`copy_to_clipboard`]: owns the `copied` signal and
+/// the reset timer. Form-field copy actions should adopt this and drop their own
+/// `copied` signal.
+#[cfg_attr(not(feature = "form"), allow(dead_code))]
+pub(crate) fn use_copy_feedback() -> CopyFeedback {
+    let mut copied = use_signal(|| false);
+    let timer = use_timer(COPIED_RESET_MS, move || copied.set(false));
+    let copy = use_callback(move |text: String| {
+        if text.is_empty() {
+            return;
+        }
+        #[cfg(feature = "web")]
+        write_clipboard(&text);
+        copied.set(true);
+        timer.start();
+    });
+    CopyFeedback { copied, copy }
+}
+
 /// Best-effort clipboard write that flips `set_copied` true and back after 1.5s.
 ///
-/// Retained for form-field copy actions (`form/view`); [`Copyable`] uses its own
-/// cancel-on-unmount timer instead of this fire-and-forget variant.
+/// Hook-free variant retained for the form-field copy actions (`form/view`). The
+/// reset callback is fire-and-forget, so it tolerates the caller having unmounted
+/// in the meantime (`try_write` instead of `write`). Prefer [`use_copy_feedback`]
+/// in new code.
 #[cfg_attr(not(feature = "form"), allow(dead_code))]
 pub(crate) fn copy_to_clipboard(text: String, mut set_copied: Signal<bool>) {
     #[cfg(feature = "web")]
@@ -48,11 +62,16 @@ pub(crate) fn copy_to_clipboard(text: String, mut set_copied: Signal<bool>) {
         use wasm_bindgen::JsCast;
         write_clipboard(&text);
         set_copied.set(true);
-        let cb = wasm_bindgen::closure::Closure::once_into_js(move || set_copied.set(false));
+        let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
+            // The owning scope may be gone by now; a dropped signal is not an error.
+            if let Ok(mut w) = set_copied.try_write() {
+                *w = false;
+            }
+        });
         if let Some(window) = web_sys::window() {
             let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
                 cb.as_ref().unchecked_ref(),
-                1500,
+                COPIED_RESET_MS as i32,
             );
         }
     }
@@ -65,45 +84,11 @@ pub(crate) fn copy_to_clipboard(text: String, mut set_copied: Signal<bool>) {
 
 #[component]
 pub fn Copyable(text: String, #[props(default)] class: String) -> Element {
-    let mut copied = use_signal(|| false);
-
-    #[cfg(feature = "web")]
-    let timer = use_hook(|| Rc::new(RefCell::new(ResetTimer::default())));
-    #[cfg(feature = "web")]
-    use_drop({
-        let timer = timer.clone();
-        move || timer.borrow_mut().cancel()
-    });
+    let feedback = use_copy_feedback();
+    let copied = feedback.copied;
 
     let text_clone = text.clone();
-    let on_click = move |_| {
-        let val = text_clone.clone();
-        if val.is_empty() {
-            return;
-        }
-        #[cfg(feature = "web")]
-        {
-            use wasm_bindgen::JsCast;
-            write_clipboard(&val);
-            copied.set(true);
-            let mut timer_ref = timer.borrow_mut();
-            timer_ref.cancel();
-            let closure = wasm_bindgen::closure::Closure::once(move || copied.set(false));
-            if let Some(win) = web_sys::window() {
-                timer_ref.handle = win
-                    .set_timeout_with_callback_and_timeout_and_arguments_0(
-                        closure.as_ref().unchecked_ref(),
-                        1500,
-                    )
-                    .ok();
-            }
-            timer_ref._closure = Some(closure);
-        }
-        #[cfg(not(feature = "web"))]
-        {
-            copied.set(true);
-        }
-    };
+    let on_click = move |_| feedback.copy(text_clone.clone());
 
     let btn_class = merge(&[
         "inline-flex items-center gap-1.5 cursor-pointer group transition-colors",
@@ -129,6 +114,10 @@ pub fn Copyable(text: String, #[props(default)] class: String) -> Element {
                 class: "size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors",
             }
             span { "{text}" }
+            // Announce the state change; `title` alone is not read by screen readers.
+            span { role: "status", class: "sr-only",
+                if copied() { "Copied" }
+            }
         }
     }
 }

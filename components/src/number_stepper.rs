@@ -2,8 +2,11 @@ use dioxus::prelude::*;
 use ds_utils::format::merge;
 
 /// Apply `delta * step` to `value`, clamped to `[min, max]`. Pure — unit-tested.
+/// Saturating so the default `i64::MAX`/`i64::MIN` bounds never overflow.
 pub(crate) fn stepped(value: i64, delta: i64, step: i64, min: i64, max: i64) -> i64 {
-    (value + delta * step).clamp(min, max)
+    value
+        .saturating_add(delta.saturating_mul(step))
+        .clamp(min, max)
 }
 
 /// Numeric increment/decrement control bound to a `Signal<i64>`. Distinct from
@@ -30,6 +33,7 @@ pub fn NumberStepper(
             button {
                 r#type: "button",
                 class: btn,
+                "aria-label": "Decrease",
                 disabled: v <= min,
                 onclick: move |_| value.set(stepped(value(), -1, step, min, max)),
                 "−"
@@ -40,6 +44,7 @@ pub fn NumberStepper(
             button {
                 r#type: "button",
                 class: btn,
+                "aria-label": "Increase",
                 disabled: v >= max,
                 onclick: move |_| value.set(stepped(value(), 1, step, min, max)),
                 "+"
@@ -60,6 +65,14 @@ mod tests {
     #[test]
     fn clamps_to_max() {
         assert_eq!(stepped(100, 1, 5, 0, 100), 100);
+    }
+
+    #[test]
+    fn saturates_at_i64_bounds_instead_of_overflowing() {
+        assert_eq!(stepped(i64::MAX - 1, 1, 5, i64::MIN, i64::MAX), i64::MAX);
+        assert_eq!(stepped(i64::MIN + 1, -1, 5, i64::MIN, i64::MAX), i64::MIN);
+        assert_eq!(stepped(10, -1, i64::MAX, 0, 100), 0);
+        assert_eq!(stepped(10, 1, i64::MAX, 0, 100), 100);
     }
 
     #[test]

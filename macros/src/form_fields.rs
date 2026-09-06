@@ -28,10 +28,19 @@ pub fn derive_form_fields(input: TokenStream) -> TokenStream {
         }
     };
 
-    let consts = fields.iter().map(|f| {
+    let labels = match fields
+        .iter()
+        .map(find_field_label)
+        .collect::<syn::Result<Vec<_>>>()
+    {
+        Ok(labels) => labels,
+        Err(err) => return err.to_compile_error().into(),
+    };
+
+    let consts = fields.iter().zip(labels).map(|(f, label)| {
         let field_name = f.ident.as_ref().unwrap();
         let field_str = field_name.to_string();
-        let label = find_field_label(f).unwrap_or_else(|| snake_to_title(&field_name.to_string()));
+        let label = label.unwrap_or_else(|| snake_to_title(&field_name.to_string()));
         let field_ty = &f.ty;
 
         if let Some(inner_ty) = vec_inner_type(field_ty) {
@@ -148,23 +157,22 @@ fn is_option_type(ty: &Type) -> bool {
     false
 }
 
-fn find_field_label(field: &syn::Field) -> Option<String> {
+/// `#[field(label = "...")]`. Unknown keys and malformed values are compile
+/// errors (a misspelt `lable` used to be silently ignored).
+fn find_field_label(field: &syn::Field) -> syn::Result<Option<String>> {
+    let mut label = None;
     for attr in &field.attrs {
         if !attr.path().is_ident("field") {
             continue;
         }
-        let mut label = None;
-        let _ = attr.parse_nested_meta(|meta| {
+        attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("label") {
-                let value = meta.value()?;
-                let lit: syn::LitStr = value.parse()?;
+                let lit: syn::LitStr = meta.value()?.parse()?;
                 label = Some(lit.value());
+                return Ok(());
             }
-            Ok(())
-        });
-        if label.is_some() {
-            return label;
-        }
+            Err(meta.error("unknown `#[field(..)]` key; expected `label = \"...\"`"))
+        })?;
     }
-    None
+    Ok(label)
 }

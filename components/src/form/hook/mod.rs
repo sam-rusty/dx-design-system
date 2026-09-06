@@ -75,6 +75,9 @@ impl<T> PartialEq for DynamicForm<T> {
     }
 }
 
+/// Store owned by the *current* scope (the one calling `default()`), so it
+/// is dropped with that component instead of living for the whole app.
+/// Prefer [`use_dynamic_form`] inside components.
 impl<T> Default for DynamicForm<T>
 where
     T: FormData,
@@ -82,10 +85,10 @@ where
     fn default() -> Self {
         let schema = T::json_schema();
         Self {
-            values_signal: Signal::new_in_scope(Default::default(), ScopeId::ROOT),
-            aux: Signal::new_in_scope(Default::default(), ScopeId::ROOT),
-            default_schema: Signal::new_in_scope(Arc::new(schema), ScopeId::ROOT),
-            required_fields: Signal::new_in_scope(Default::default(), ScopeId::ROOT),
+            values_signal: Signal::new(Default::default()),
+            aux: Signal::new(Default::default()),
+            default_schema: Signal::new(Arc::new(schema)),
+            required_fields: Signal::new(Default::default()),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -186,9 +189,8 @@ impl<T: FormData> DynamicForm<T> {
 
     pub fn toggle_optional<K>(&self, enabled: Signal<bool>, field: K) -> impl Fn() + 'static
     where
-        T: Send + Sync,
         K: Into<Field> + FieldKey<T> + 'static,
-        K::Value: ToggleDefault + Send + Sync + 'static,
+        K::Value: ToggleDefault + 'static,
     {
         let form = *self;
         let name = field.into().name;

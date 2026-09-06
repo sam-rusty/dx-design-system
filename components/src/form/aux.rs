@@ -28,6 +28,10 @@ pub struct AuxState {
     /// Blanket set by `default_values`: fields without an explicit
     /// [`AuxState::written`] entry count as written.
     pub all_written: bool,
+    /// Subtrees reset to pristine while the blanket is on: a path here (or
+    /// any `path.*` descendant) without an explicit [`AuxState::written`]
+    /// entry counts as unwritten despite [`AuxState::all_written`].
+    pub unwritten_prefixes: HashSet<String>,
     /// Fields that have been blurred/committed at least once.
     pub touched: HashSet<String>,
     /// Current validation message per field (`None` = explicitly cleared).
@@ -36,7 +40,10 @@ pub struct AuxState {
 
 impl AuxState {
     pub fn is_written(&self, path: &str) -> bool {
-        self.written.get(path).copied().unwrap_or(self.all_written)
+        if let Some(explicit) = self.written.get(path) {
+            return *explicit;
+        }
+        self.all_written && !self.unwritten_prefixes.iter().any(|p| is_under(path, p))
     }
 
     pub fn is_touched(&self, path: &str) -> bool {
@@ -56,9 +63,7 @@ impl AuxState {
     }
 
     pub fn touch(&mut self, path: &str) {
-        if !self.touched.contains(path) {
-            self.touched.insert(path.to_string());
-        }
+        self.touched.insert(path.to_string());
     }
 
     pub fn set_error(&mut self, path: &str, error: Option<String>) {
@@ -74,17 +79,35 @@ impl AuxState {
         self.overlay.remove(path);
     }
 
-    /// Reset `path` and its descendants (`path.*`) to pristine.
+    /// Reset `path` and its descendants (`path.*`) to pristine. Under the
+    /// [`AuxState::all_written`] blanket the subtree is remembered as
+    /// unwritten so later-added descendants (new rows) start blank too.
+    /// A row appended/inserted under the `default_values` blanket starts blank
+    /// (its inputs show nothing rather than `T::default()`'s `"0"`/`"false"`),
+    /// matching how rows behave without `default_values`. No-op otherwise.
+    pub fn mark_row_pristine(&mut self, prefix: &str, index: usize) {
+        if self.all_written {
+            self.unwritten_prefixes.insert(format!("{prefix}.{index}"));
+        }
+    }
+
     pub fn clear_field(&mut self, path: &str) {
-        let prefix = format!("{path}.");
-        let under = |k: &str| k == path || k.starts_with(&prefix);
+        let under = |k: &str| is_under(k, path);
         self.overlay.retain(|k, _| !under(k));
         self.touched.retain(|k| !under(k));
         self.errors.retain(|k, _| !under(k));
         self.written.retain(|k, _| !under(k));
         if self.all_written {
-            self.unmark_written(path);
+            self.unwritten_prefixes.retain(|k| !under(k));
+            self.unwritten_prefixes.insert(path.to_string());
         }
+    }
+
+    /// Pre-fill: every field counts as written from here on.
+    pub fn mark_all_written(&mut self) {
+        self.all_written = true;
+        self.written.clear();
+        self.unwritten_prefixes.clear();
     }
 
     /// Row removed at `index` under array `prefix`: drop that row's entries,
@@ -131,7 +154,14 @@ impl AuxState {
         rekey_map(&mut self.errors, prefix, &map_row);
         rekey_map(&mut self.written, prefix, &map_row);
         rekey_set(&mut self.touched, prefix, &map_row);
+        rekey_set(&mut self.unwritten_prefixes, prefix, &map_row);
     }
+}
+
+/// `key` is `prefix` itself or a dot-descendant of it.
+fn is_under(key: &str, prefix: &str) -> bool {
+    key.strip_prefix(prefix)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
 }
 
 /// Splits `key` as `{prefix}.{row}{rest}` where `row` is a numeric segment
@@ -277,8 +307,10 @@ mod tests {
 
     #[test]
     fn clear_field_resets_descendants_under_blanket() {
-        let mut s = AuxState::default();
-        s.all_written = true;
+        let mut s = AuxState {
+            all_written: true,
+            ..Default::default()
+        };
         s.touch("address.street");
         s.set_error("address.street", Some("x".into()));
         s.clear_field("address");
@@ -287,6 +319,62 @@ mod tests {
         assert_eq!(s.error("address.street"), None);
         // blanket still applies to unrelated fields
         assert!(s.is_written("name"));
+    }
+
+    /// A8: under the `all_written` blanket, clearing a subtree keeps its
+    /// descendants pristine until they are written individually.
+    #[test]
+    fn rows_added_under_blanket_start_pristine() {
+        let mut a = AuxState::default();
+        a.mark_all_written();
+        a.mark_row_pristine("items", 0);
+        assert!(!a.is_written("items.0.qty"));
+        assert!(a.is_written("items.1.qty"));
+        // Typing into the new row marks just that field written again.
+        a.mark_written("items.0.qty");
+        assert!(a.is_written("items.0.qty"));
+        assert!(!a.is_written("items.0.name"));
+        // Without the blanket the helper is a no-op.
+        let mut b = AuxState::default();
+        b.mark_row_pristine("items", 0);
+        assert!(!b.is_written("items.0.qty"));
+        assert!(b.unwritten_prefixes.is_empty());
+    }
+
+    #[test]
+    fn clear_field_under_blanket_keeps_descendants_pristine() {
+        let mut s = AuxState {
+            all_written: true,
+            ..Default::default()
+        };
+        s.clear_field("items");
+        assert!(!s.is_written("items"));
+        assert!(!s.is_written("items.0.qty"));
+        // `rows.push` marks the array itself written; new rows stay blank.
+        s.mark_written("items");
+        assert!(s.is_written("items"));
+        assert!(!s.is_written("items.0.qty"));
+        s.mark_written("items.0.qty");
+        assert!(s.is_written("items.0.qty"));
+        // unrelated fields keep the blanket; similar prefixes are untouched
+        assert!(s.is_written("name"));
+        assert!(s.is_written("items_extra.0"));
+        // explicit unmark still wins under the blanket
+        s.unmark_written("name");
+        assert!(!s.is_written("name"));
+    }
+
+    #[test]
+    fn cleared_subtrees_follow_row_rekeys() {
+        let mut s = AuxState {
+            all_written: true,
+            ..Default::default()
+        };
+        s.clear_field("items.1.nested");
+        assert!(!s.is_written("items.1.nested.deep"));
+        s.remove_row("items", 0);
+        assert!(!s.is_written("items.0.nested.deep"));
+        assert!(s.is_written("items.1.nested.deep"));
     }
 
     /// Deterministic pseudo-random op sequences against a naive oracle that

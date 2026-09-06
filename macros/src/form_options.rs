@@ -22,6 +22,17 @@ pub fn derive_form_options(input: TokenStream) -> TokenStream {
 
     let rename_all = find_serde_rename_all(&input.attrs);
 
+    // `OPTIONS` / `json_schema()` need at least one unit variant; an empty
+    // option list used to compile silently.
+    if !variants.iter().any(|v| v.fields.is_empty()) {
+        return syn::Error::new(
+            name.span(),
+            "FormOptions requires at least one unit variant (data variants have no option value)",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     let unit_variants: Vec<_> = variants
         .iter()
         .filter(|v| v.fields.is_empty())
@@ -46,7 +57,9 @@ pub fn derive_form_options(input: TokenStream) -> TokenStream {
         .unwrap_or_default();
 
     // FormValue (typed form store) is only expressible when every variant is
-    // a unit variant — data variants have no string form.
+    // a unit variant — data variants have no string form. Such enums still
+    // get `OPTIONS` / `FormSchema` for the dynamic form, but binding them to a
+    // typed control fails with a `FormValue` bound error at the `field:` prop.
     let all_unit = variants.iter().all(|v| v.fields.is_empty());
     let form_value_impl = if all_unit {
         let to_arms = variants.iter().map(|v| {

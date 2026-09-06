@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -9,6 +9,7 @@ use ds_utils::format::merge;
 use crate::checkbox::CheckboxBase;
 use crate::icon::{Icon, IconName};
 use crate::link::Link;
+use crate::list_view::{ListStatus, ListStatusKind};
 use crate::text::{Text, TextSize, TextVariant};
 
 type RowHrefFn<T> = Arc<dyn Fn(&T) -> NavigationTarget + Send + Sync>;
@@ -150,10 +151,33 @@ impl<T: 'static, K: Copy + 'static, F: Fn(&T) -> K + Send + Sync + 'static> From
 
 // ── Row class variants (state → &'static str, no per-render alloc) ───────────
 
-const ROW_BASE: &str = "group flex items-center gap-3 px-4 transition-colors";
-const ROW_LINK: &str =
-    "group flex items-center gap-3 px-4 transition-colors cursor-pointer hover:bg-accent/30";
-const ROW_SELECTED: &str = "group flex items-center gap-3 px-4 transition-colors bg-primary/5";
+/// Row / pagination class variants share one base literal; `concat!` keeps each
+/// variant a `&'static str` (no per-render allocation).
+macro_rules! row_class {
+    () => {
+        "group flex items-center gap-3 px-4 transition-colors"
+    };
+    ($suffix:literal) => {
+        concat!(row_class!(), " ", $suffix)
+    };
+}
+macro_rules! page_link_class {
+    () => {
+        "text-sm font-medium transition-colors px-3 py-1.5 rounded-lg"
+    };
+    ($suffix:literal) => {
+        concat!(page_link_class!(), " ", $suffix)
+    };
+}
+
+const ROW_BASE: &str = row_class!();
+const ROW_LINK: &str = row_class!("cursor-pointer hover:bg-accent/30");
+const ROW_SELECTED: &str = row_class!("bg-primary/5");
+
+#[cfg(test)]
+const PAGE_LINK_BASE: &str = page_link_class!();
+const PAGE_LINK_ACTIVE: &str = page_link_class!("text-foreground hover:bg-accent cursor-pointer");
+const PAGE_LINK_DISABLED: &str = page_link_class!("text-muted-foreground/40 pointer-events-none");
 
 // ── Sort Direction ───────────────────────────────────────────────────────────
 
@@ -255,6 +279,11 @@ impl<T: 'static, F: Fn(&T) -> Element + Send + Sync + 'static> From<F> for ColRe
 
 struct ColumnRegistry<T: 'static> {
     columns: Signal<Vec<TableColumn<T>>>,
+    /// Which `Col` instance currently owns each column id. When the table
+    /// switches template (loading ↔ ready) Dioxus mounts the new `Col`
+    /// instances before dropping the old ones, so an unowned `use_drop`
+    /// would delete the freshly registered column.
+    owners: Signal<HashMap<&'static str, usize>>,
 }
 impl<T: 'static> Copy for ColumnRegistry<T> {}
 impl<T: 'static> Clone for ColumnRegistry<T> {
@@ -275,6 +304,10 @@ impl<T: 'static> Clone for ColumnRegistry<T> {
 ///         render: |p: &Person| rsx! { "{p.name}" } }
 /// }
 /// ```
+///
+/// `label`, `sortable` and `class` are re-applied whenever they change. `render` is
+/// captured on mount (closures cannot be compared); read reactive state *inside* the
+/// closure, or remount the column with a `key`, when its output depends on other state.
 #[component]
 pub fn Col<T: Clone + PartialEq + 'static>(
     id: &'static str,
@@ -284,7 +317,11 @@ pub fn Col<T: Clone + PartialEq + 'static>(
     #[props(into)] render: ColRenderFn<T>,
 ) -> Element {
     let mut registry = use_context::<ColumnRegistry<T>>();
+    // Per-instance token so `use_drop` only removes a registration this
+    // instance still owns (see `ColumnRegistry::owners`).
+    let token = use_hook(|| dioxus::core::current_scope_id().0);
     use_hook(move || {
+        registry.owners.write_unchecked().insert(id, token);
         let new_col = TableColumn {
             key: id,
             label,
@@ -299,34 +336,78 @@ pub fn Col<T: Clone + PartialEq + 'static>(
             cols.push(new_col);
         }
     });
+    // Static fields track prop changes; the write is skipped when nothing differs so
+    // the mount pass does not trigger a second table render.
+    use_effect(use_reactive!(|(id, label, sortable, class)| {
+        let changed = registry
+            .columns
+            .peek()
+            .iter()
+            .find(|c| c.key == id)
+            .is_some_and(|c| c.label != label || c.sortable != sortable || c.col_class != class);
+        if changed && let Some(c) = registry.columns.write().iter_mut().find(|c| c.key == id) {
+            c.label = label;
+            c.sortable = sortable;
+            c.col_class = class;
+        }
+    }));
     use_drop(move || {
-        registry.columns.write().retain(|c| c.key != id);
+        let mut owners = registry.owners.write_unchecked();
+        if owners.get(id) == Some(&token) {
+            owners.remove(id);
+            registry.columns.write().retain(|c| c.key != id);
+        }
     });
     rsx! {}
+}
+
+// ── Selection logic (pure, unit-tested) ─────────────────────────────────────
+
+/// Insertion-ordered selection so the `Vec<K>` handed to the parent is deterministic.
+pub(crate) fn toggle_key<K: PartialEq + Copy>(selected: &mut Vec<K>, id: K) {
+    if let Some(pos) = selected.iter().position(|k| *k == id) {
+        selected.remove(pos);
+    } else {
+        selected.push(id);
+    }
+}
+
+pub(crate) fn all_selected<K: PartialEq>(selected: &[K], ids: &[K]) -> bool {
+    !ids.is_empty() && ids.iter().all(|id| selected.contains(id))
+}
+
+pub(crate) fn select_keys<K: PartialEq + Copy>(selected: &mut Vec<K>, ids: &[K]) {
+    for id in ids {
+        if !selected.contains(id) {
+            selected.push(*id);
+        }
+    }
 }
 
 // ── Internal Selection State ─────────────────────────────────────────────────
 
 #[derive(Clone, Copy)]
 struct SelectionState<K: 'static> {
-    selected: Signal<HashSet<K>>,
-    page_ids: Signal<Vec<K>>,
+    selected: Signal<Vec<K>>,
 }
 
 impl<K: Eq + Hash + Copy + Send + Sync + 'static> SelectionState<K> {
+    /// Hooks run unconditionally (same count/order every render) so a parent may
+    /// switch `selection` between `Some`/`None` without corrupting the hook list.
     fn new(external: Option<Signal<Vec<K>>>) -> Self {
-        let selected = use_signal(HashSet::new);
-        let page_ids = use_signal(Vec::new);
+        let selected = use_signal(Vec::new);
 
-        // Sync internal HashSet → external Vec whenever selection changes
-        if let Some(mut ext) = external {
-            use_effect(move || {
-                let ids: Vec<K> = selected.read().iter().copied().collect();
+        // Sync internal → external Vec whenever selection changes.
+        use_effect(move || {
+            let ids: Vec<K> = selected.read().clone();
+            if let Some(mut ext) = external
+                && *ext.peek() != ids
+            {
                 ext.set(ids);
-            });
-        }
+            }
+        });
 
-        Self { selected, page_ids }
+        Self { selected }
     }
 
     fn is_selected(&self, id: K) -> bool {
@@ -334,31 +415,20 @@ impl<K: Eq + Hash + Copy + Send + Sync + 'static> SelectionState<K> {
     }
 
     fn toggle(mut self, id: K) {
-        let mut s = self.selected.write();
-        if !s.remove(&id) {
-            s.insert(id);
-        }
+        toggle_key(&mut self.selected.write(), id);
     }
 
-    fn all_on_page_selected(&self) -> bool {
-        let page = self.page_ids.read();
-        if page.is_empty() {
-            return false;
-        }
-        let s = self.selected.read();
-        page.iter().all(|id| s.contains(id))
+    /// `ids` are the keys currently on the page (derived from `items` by the caller).
+    fn all_on_page_selected(&self, ids: &[K]) -> bool {
+        all_selected(&self.selected.read(), ids)
     }
 
     fn some_selected(&self) -> bool {
         !self.selected.read().is_empty()
     }
 
-    fn select_all(mut self) {
-        let ids = self.page_ids.peek().clone();
-        let mut s = self.selected.write();
-        for id in ids {
-            s.insert(id);
-        }
+    fn select_all(mut self, ids: &[K]) {
+        select_keys(&mut self.selected.write(), ids);
     }
 
     fn deselect_all(mut self) {
@@ -392,7 +462,8 @@ pub fn DataTable<T, K>(
     page_href: PageHrefProp,
     // ── Row Selection ──
     #[props(default)] selectable: bool,
-    /// Parent-owned signal that receives the current selection as a `Vec<K>`.
+    /// Parent-owned signal that receives the current selection as a `Vec<K>`
+    /// (insertion order).
     #[props(default)]
     selection: Option<Signal<Vec<K>>>,
     // ── Row Navigation ──
@@ -400,8 +471,8 @@ pub fn DataTable<T, K>(
     // ── Per-row actions column ──
     #[props(default, into)] row_actions: RowActionsProp<T>,
     /// Content rendered at the start of each row (e.g. a per-row selection
-    /// checkbox driven by an external context). Clicks are automatically
-    /// stopped from propagating to the row link via an undelegated listener.
+    /// checkbox driven by an external context). Clicks inside the slot do not
+    /// reach the row's own click handler (expand toggle).
     #[props(default, into)]
     row_left: RowLeftProp<K>,
     /// When set, rows expand on click into a panel rendering this closure's output, instead of
@@ -426,33 +497,43 @@ where
     T: Clone + Send + Sync + PartialEq + 'static,
     K: Eq + Hash + Copy + Send + Sync + Display + 'static,
 {
-    // Hooks must run unconditionally; gate *use* of the state on `selectable`.
+    // Every hook runs before any early return so the hook list is stable across
+    // `loading` / empty / populated renders.
     let selection_state = SelectionState::<K>::new(selection);
+    // Provide context so `Col` children can register themselves on mount.
+    let columns_sig = use_signal(Vec::<TableColumn<T>>::new);
+    let owners_sig = use_signal(HashMap::<&'static str, usize>::new);
+    let registry = use_context_provider(|| ColumnRegistry::<T> {
+        columns: columns_sig,
+        owners: owners_sig,
+    });
+    let expanded = use_signal(HashSet::<K>::new);
+
     let sel = selectable.then_some(selection_state);
+    // Keys on this page, derived from `items` (no render-time signal write).
+    let page_ids: Vec<K> = items.iter().map(|item| (item_key.0)(item)).collect();
 
-    // Populate page_ids so select-all knows which rows exist
-    if let Some(mut sel) = sel {
-        let key_fn = item_key.0.clone();
-        let ids: Vec<K> = items.iter().map(|item| key_fn(item)).collect();
-        sel.page_ids.write().clone_from(&ids);
-    }
+    // Read registered columns; subscribes to changes when `Col` children register.
+    let columns_arc = Arc::new(registry.columns.read().clone());
 
-    // Loading contract: show the skeleton while the parent reports `loading`.
+    // Loading contract: show the skeleton while the parent reports `loading`. `Col`
+    // children still mount so the skeleton can mirror the real column count.
     if loading {
+        let registered = columns_arc.len();
         return match skeleton {
-            Some(s) => s,
+            Some(s) => rsx! {
+                {children}
+                {s}
+            },
             None => rsx! {
-                DataTableSkeleton { rows: skeleton_rows }
+                {children}
+                DataTableSkeleton {
+                    rows: skeleton_rows,
+                    columns: if registered == 0 { 3 } else { registered },
+                }
             },
         };
     }
-
-    // Provide context so `Col` children can register themselves on mount.
-    let columns_sig = use_signal(Vec::<TableColumn<T>>::new);
-    let registry = use_context_provider(|| ColumnRegistry::<T> {
-        columns: columns_sig,
-    });
-    let mut expanded = use_signal(HashSet::<K>::new);
 
     let page_val = page.map(|p| p()).unwrap_or(1);
     let has_actions = row_actions.0.is_some();
@@ -460,12 +541,15 @@ where
     // Empty state
     if items.is_empty() && page_val <= 1 {
         return match empty {
-            Some(e) => e,
+            Some(e) => rsx! {
+                {children}
+                {e}
+            },
             None => rsx! {
-                div { class: "bg-card flex flex-col items-center justify-center rounded-xl border border-border py-12",
-                    Text { variant: TextVariant::Secondary, size: TextSize::Small,
-                        "No items found"
-                    }
+                {children}
+                ListStatus {
+                    kind: ListStatusKind::Empty,
+                    class: "bg-card rounded-xl border border-border",
                 }
             },
         };
@@ -477,8 +561,6 @@ where
     let row_actions_arc = row_actions.0;
     let row_left_arc = row_left.0;
     let row_expand_arc = row_expand.0;
-    // Read registered columns; subscribes to changes when `Col` children register.
-    let columns_arc = Arc::new(registry.columns.read().clone());
 
     let outer = merge(&[
         "bg-card flex flex-col rounded-xl border border-border overflow-hidden",
@@ -495,12 +577,13 @@ where
         if sortable {
             let current_key = sort_key.as_ref().map(|sk| sk()).unwrap_or_default();
             let current_dir = sort_dir.map(|sd| sd()).unwrap_or_default();
-            let new_dir = if current_key == col_key {
+            let is_current = current_key == col_key;
+            let new_dir = if is_current {
                 current_dir.toggle()
             } else {
                 SortDir::Asc
             };
-            let sort_icon = if current_key == col_key {
+            let sort_icon = if is_current {
                 match current_dir {
                     SortDir::Asc => rsx! {
                         Icon { name: IconName::ChevronUp, class: "size-3 text-primary" }
@@ -585,13 +668,36 @@ where
                 }
             });
 
+            let toggle_row = move || {
+                let mut expanded = expanded;
+                let mut set = expanded.write();
+                if !set.remove(&row_id) {
+                    set.insert(row_id);
+                }
+            };
+
+            // The chevron is a real button so the panel is reachable by keyboard and
+            // announces its state; its click is stopped so the row handler does not
+            // toggle a second time.
             let chevron_view = expandable.then(|| {
                 let cls = if is_open {
                     "size-4 shrink-0 text-muted-foreground rotate-90 transition-transform"
                 } else {
                     "size-4 shrink-0 text-muted-foreground transition-transform"
                 };
-                rsx! { Icon { name: IconName::ChevronRight, class: "{cls}" } }
+                rsx! {
+                    button {
+                        r#type: "button",
+                        class: "inline-flex shrink-0 cursor-pointer",
+                        "aria-expanded": is_open,
+                        "aria-label": "Toggle details",
+                        onclick: move |e: Event<MouseData>| {
+                            e.stop_propagation();
+                            toggle_row();
+                        },
+                        Icon { name: IconName::ChevronRight, class: "{cls}" }
+                    }
+                }
             });
 
             // Panel closure invoked ONLY when expanded → lazy mount of any inner component.
@@ -601,12 +707,7 @@ where
 
             let on_row_click = move |_: Event<MouseData>| {
                 if expandable {
-                    let mut set = expanded.write();
-                    if set.contains(&row_id) {
-                        set.remove(&row_id);
-                    } else {
-                        set.insert(row_id);
-                    }
+                    toggle_row();
                 }
             };
 
@@ -616,10 +717,18 @@ where
                     class: row_class,
                     onclick: on_row_click,
                     {chevron_view}
-                    {row_left_view}
-                    {checkbox_view}
+                    // Slots are interactive (checkboxes, action buttons): their clicks
+                    // must not bubble into the row's expand/navigate handler.
+                    if let Some(v) = row_left_view {
+                        div { class: "contents", onclick: |e| e.stop_propagation(), {v} }
+                    }
+                    if let Some(v) = checkbox_view {
+                        div { class: "contents", onclick: |e| e.stop_propagation(), {v} }
+                    }
                     {cells_view}
-                    {actions_view}
+                    if let Some(v) = actions_view {
+                        div { class: "contents", onclick: |e| e.stop_propagation(), {v} }
+                    }
                 }
                 if let Some(panel) = panel_view {
                     div {
@@ -638,23 +747,17 @@ where
             let next_p = page_val + 1;
             let prev_href = page_href_fn(prev_p);
             let next_href = page_href_fn(next_p);
-            let prev_class = if page_val <= 1 {
-                "text-sm font-medium transition-colors px-3 py-1.5 rounded-lg text-muted-foreground/40 pointer-events-none"
-            } else {
-                "text-sm font-medium transition-colors px-3 py-1.5 rounded-lg text-foreground hover:bg-accent cursor-pointer"
-            };
-            let next_class = if has_more {
-                "text-sm font-medium transition-colors px-3 py-1.5 rounded-lg text-foreground hover:bg-accent cursor-pointer"
-            } else {
-                "text-sm font-medium transition-colors px-3 py-1.5 rounded-lg text-muted-foreground/40 pointer-events-none"
-            };
+            let prev_disabled = page_val <= 1;
+            let next_disabled = !has_more;
             rsx! {
-                div { class: "flex items-center justify-between px-4 py-3 border-t border-border bg-muted/20",
-                    Link { to: prev_href, class: "{prev_class}", "\u{2190} Previous" }
+                nav {
+                    "aria-label": "Pagination",
+                    class: "flex items-center justify-between px-4 py-3 border-t border-border bg-muted/20",
+                    PageLink { href: prev_href, disabled: prev_disabled, "\u{2190} Previous" }
                     Text { variant: TextVariant::Secondary, size: TextSize::Small,
                         "Page {page_val}"
                     }
-                    Link { to: next_href, class: "{next_class}", "Next \u{2192}" }
+                    PageLink { href: next_href, disabled: next_disabled, "Next \u{2192}" }
                 }
             }
         }
@@ -662,13 +765,14 @@ where
     };
 
     let select_all_view = sel.map(|s| {
-        let is_indeterminate = s.some_selected() && !s.all_on_page_selected();
-        let is_checked = s.all_on_page_selected();
+        let all = s.all_on_page_selected(&page_ids);
+        let is_indeterminate = s.some_selected() && !all;
         if is_indeterminate {
             rsx! {
                 div { class: "flex items-center justify-center w-6 shrink-0",
                     button {
                         r#type: "button",
+                        "aria-label": "Clear selection",
                         class: "inline-flex items-center justify-center size-[18px] shrink-0 cursor-pointer select-none",
                         onclick: move |e| {
                             e.stop_propagation();
@@ -685,12 +789,13 @@ where
                 }
             }
         } else {
+            let ids = page_ids.clone();
             rsx! {
                 div { class: "flex items-center justify-center w-6 shrink-0",
                     CheckboxBase {
-                        checked: Some(is_checked),
+                        checked: Some(all),
                         on_checked_change: move |checked: bool| {
-                            if checked { s.select_all() } else { s.deselect_all() }
+                            if checked { s.select_all(&ids) } else { s.deselect_all() }
                         },
                     }
                 }
@@ -720,6 +825,26 @@ where
 
             // ── Pagination ──
             {pagination_view}
+        }
+    }
+}
+
+/// Prev/next pagination link. A disabled side keeps its dimmed classes and is also
+/// removed from the tab order and announced as disabled (E9).
+#[component]
+fn PageLink(href: String, disabled: bool, children: Element) -> Element {
+    let class = if disabled {
+        PAGE_LINK_DISABLED
+    } else {
+        PAGE_LINK_ACTIVE
+    };
+    rsx! {
+        Link {
+            to: href,
+            class: "{class}",
+            "aria-disabled": disabled.then_some("true"),
+            tabindex: disabled.then_some("-1"),
+            {children}
         }
     }
 }
@@ -763,5 +888,53 @@ pub fn DataTableSkeleton(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sort_dir_toggles() {
+        assert_eq!(SortDir::Asc.toggle(), SortDir::Desc);
+        assert_eq!(SortDir::Desc.toggle(), SortDir::Asc);
+        assert_eq!(SortDir::default(), SortDir::Asc);
+    }
+
+    #[test]
+    fn toggle_key_keeps_insertion_order() {
+        let mut v = Vec::new();
+        toggle_key(&mut v, 3);
+        toggle_key(&mut v, 1);
+        toggle_key(&mut v, 2);
+        assert_eq!(v, vec![3, 1, 2]);
+        toggle_key(&mut v, 1);
+        assert_eq!(v, vec![3, 2]);
+    }
+
+    #[test]
+    fn all_selected_requires_non_empty_page() {
+        assert!(!all_selected::<u32>(&[], &[]));
+        assert!(!all_selected(&[1, 2], &[]));
+        assert!(all_selected(&[2, 1, 9], &[1, 2]));
+        assert!(!all_selected(&[1], &[1, 2]));
+    }
+
+    #[test]
+    fn select_keys_is_idempotent() {
+        let mut v = vec![2];
+        select_keys(&mut v, &[1, 2, 3]);
+        assert_eq!(v, vec![2, 1, 3]);
+        select_keys(&mut v, &[1, 2, 3]);
+        assert_eq!(v, vec![2, 1, 3]);
+    }
+
+    #[test]
+    fn row_and_page_classes_share_base() {
+        assert!(ROW_LINK.starts_with(ROW_BASE));
+        assert!(ROW_SELECTED.starts_with(ROW_BASE));
+        assert!(PAGE_LINK_ACTIVE.starts_with(PAGE_LINK_BASE));
+        assert!(PAGE_LINK_DISABLED.starts_with(PAGE_LINK_BASE));
     }
 }

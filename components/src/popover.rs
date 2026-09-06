@@ -1,9 +1,11 @@
 use dioxus::prelude::*;
 
 use crate::button::{Button, ButtonVariant};
+#[cfg(all(feature = "web", target_arch = "wasm32"))]
+use crate::focus::focus_first_descendant;
 use crate::hooks::{
-    use_controlled, use_dismiss_on_viewport_change, use_escape_listener, use_outside_dismiss_panel,
-    use_unique_id,
+    use_controlled, use_dismiss_on_viewport_change, use_escape_listener_open, use_focus_restore,
+    use_outside_dismiss_panel, use_unique_id,
 };
 use crate::placement::Placement;
 #[cfg(target_arch = "wasm32")]
@@ -56,7 +58,7 @@ pub fn Popover(
     let mut coords = use_signal(|| None::<(f64, f64, Placement)>);
     let panel_id = use_unique_id();
 
-    use_escape_listener(move || {
+    use_escape_listener_open(is_open.into(), move || {
         if is_open() {
             set_open.call(false);
         }
@@ -68,11 +70,17 @@ pub fn Popover(
     });
     // Fixed coords are measured once on open; a scroll/resize would detach the
     // panel from its trigger, so close instead of chasing the trigger per-frame.
-    use_dismiss_on_viewport_change(is_open.into(), move || {
+    use_dismiss_on_viewport_change(is_open.into(), panel_el, move || {
         if is_open() {
             set_open.call(false);
         }
     });
+
+    // Focus enters the panel on open (first tabbable child, see `onmounted`) and
+    // returns to whatever was focused before on close. The save happens in an
+    // effect after the render that opened us, while the `Portal` is still
+    // rendering nothing, so it records the trigger rather than the panel.
+    use_focus_restore(is_open.into());
 
     // Reset to None on close so a reopen re-measures from scratch: without this the
     // panel would paint one frame at the previous (now stale) coords before the
@@ -150,6 +158,8 @@ pub fn Popover(
                             #[cfg(target_arch = "wasm32")]
                             if let Some(panel) = _e.downcast::<web_sys::Element>() {
                                 panel_el.set(Some(panel.clone()));
+                                #[cfg(feature = "web")]
+                                focus_first_descendant(panel);
                                 if let Some(trigger) = trigger_el.peek().clone() {
                                     let t = Rect::from(trigger.get_bounding_client_rect());
                                     let p = Rect::from(panel.get_bounding_client_rect());

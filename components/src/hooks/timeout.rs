@@ -1,10 +1,10 @@
-//! A managed `setTimeout` that is cancelled on unmount (or manually), replacing
-//! the fire-and-forget timers flagged in the audit — `toast`'s auto-dismiss
-//! (armed in the render body, re-armed every render, never cancelled) and
-//! `copyable`'s reset timer.
+//! Managed `setTimeout` timers that are cancelled on unmount.
 //!
-//! The timer is scheduled once when the component mounts and cleared on unmount;
-//! the returned [`Callback`] lets the caller cancel early (e.g. on hover).
+//! [`use_timer`] is a re-armable one-shot: `start()` (re)schedules `on_elapsed`
+//! after `delay_ms`, `cancel()` clears a pending run, and unmount cancels
+//! whatever is pending, so a callback can never fire into a dropped scope
+//! (`Copyable`'s "Copied!" reset, form-field copy feedback). [`use_timeout`]
+//! is the arm-once-on-mount shape used by `Toast`'s auto-dismiss.
 
 #![allow(unused_variables)]
 
@@ -20,8 +20,9 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 
 #[cfg(feature = "web")]
-#[derive(Default)]
 struct TimeoutState {
+    delay_ms: u32,
+    on_elapsed: Rc<RefCell<dyn FnMut()>>,
     handle: Option<i32>,
     // Kept alive so the JS callback isn't freed before it fires.
     _closure: Option<Closure<dyn FnMut()>>,
@@ -29,24 +30,29 @@ struct TimeoutState {
 
 #[cfg(feature = "web")]
 impl TimeoutState {
-    fn schedule(state: &Rc<RefCell<Self>>, delay_ms: u32, on_elapsed: impl FnOnce() + 'static) {
+    fn schedule(state: &Rc<RefCell<Self>>) {
         let Some(win) = web_sys::window() else {
             return;
         };
+        state.borrow_mut().cancel();
         let fire_state = state.clone();
         let closure = Closure::once(move || {
-            fire_state.borrow_mut().handle = None;
-            on_elapsed();
+            let on_elapsed = {
+                let mut s = fire_state.borrow_mut();
+                s.handle = None;
+                s._closure = None;
+                s.on_elapsed.clone()
+            };
+            (on_elapsed.borrow_mut())();
         });
-        let handle = win
+        let mut s = state.borrow_mut();
+        s.handle = win
             .set_timeout_with_callback_and_timeout_and_arguments_0(
                 closure.as_ref().unchecked_ref(),
-                delay_ms as i32,
+                s.delay_ms as i32,
             )
             .ok();
-        let mut state = state.borrow_mut();
-        state.handle = handle;
-        state._closure = Some(closure);
+        s._closure = Some(closure);
     }
 
     fn cancel(&mut self) {
@@ -59,16 +65,37 @@ impl TimeoutState {
     }
 }
 
-/// Schedule `on_elapsed` to run once after `delay_ms`, cancelled automatically on
-/// unmount. Returns a callback that cancels the pending timer early.
-pub(crate) fn use_timeout(delay_ms: u32, on_elapsed: impl FnOnce() + 'static) -> Callback<()> {
+/// Handle to a re-armable timer created by [`use_timer`].
+#[derive(Clone, Copy)]
+pub(crate) struct Timer {
+    start: Callback<()>,
+    cancel: Callback<()>,
+}
+
+impl Timer {
+    /// (Re)schedule the callback `delay_ms` from now; a pending run is replaced.
+    pub(crate) fn start(&self) {
+        self.start.call(());
+    }
+
+    /// Clear the pending run, if any.
+    pub(crate) fn cancel(&self) {
+        self.cancel.call(());
+    }
+}
+
+/// A one-shot timer that can be armed any number of times and is cancelled on
+/// unmount. Nothing is scheduled until [`Timer::start`] is called.
+pub(crate) fn use_timer(delay_ms: u32, on_elapsed: impl FnMut() + 'static) -> Timer {
     #[cfg(feature = "web")]
     {
-        let state = use_hook(|| Rc::new(RefCell::new(TimeoutState::default())));
-
-        use_hook({
-            let state = state.clone();
-            move || TimeoutState::schedule(&state, delay_ms, on_elapsed)
+        let state = use_hook(|| {
+            Rc::new(RefCell::new(TimeoutState {
+                delay_ms,
+                on_elapsed: Rc::new(RefCell::new(on_elapsed)),
+                handle: None,
+                _closure: None,
+            }))
         });
 
         use_drop({
@@ -76,11 +103,27 @@ pub(crate) fn use_timeout(delay_ms: u32, on_elapsed: impl FnOnce() + 'static) ->
             move || state.borrow_mut().cancel()
         });
 
-        use_callback(move |()| state.borrow_mut().cancel())
+        let start = use_callback({
+            let state = state.clone();
+            move |()| TimeoutState::schedule(&state)
+        });
+        let cancel = use_callback(move |()| state.borrow_mut().cancel());
+        Timer { start, cancel }
     }
     #[cfg(not(feature = "web"))]
     {
         let _ = (delay_ms, on_elapsed);
-        use_callback(|()| {})
+        Timer {
+            start: use_callback(|()| {}),
+            cancel: use_callback(|()| {}),
+        }
     }
+}
+
+/// Schedule `on_elapsed` to run once after `delay_ms`, cancelled automatically on
+/// unmount. Returns a callback that cancels the pending timer early.
+pub(crate) fn use_timeout(delay_ms: u32, on_elapsed: impl FnMut() + 'static) -> Callback<()> {
+    let timer = use_timer(delay_ms, on_elapsed);
+    use_hook(move || timer.start());
+    use_callback(move |()| timer.cancel())
 }

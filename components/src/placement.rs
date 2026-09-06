@@ -71,15 +71,16 @@ pub(crate) struct Anchor {
 impl Anchor {
     /// Resolve fixed coords for the panel on `preferred` side, flipping to the
     /// opposite side only when `preferred` would overflow the viewport. The
-    /// cross-axis is centered on the trigger (no shift/clamp). `Auto` prefers
-    /// `Bottom`.
+    /// cross-axis is centered on the trigger, then shifted so the panel stays
+    /// at least `gap` inside the viewport (a trigger hugging the left edge no
+    /// longer yields a negative `left`). `Auto` prefers `Bottom`.
     pub(crate) fn resolve(&self, preferred: Placement) -> Resolved {
         let t = &self.trigger;
         let p = &self.panel;
         let (vw, vh) = self.viewport;
         let g = self.gap;
-        let centered_left = (t.x + t.width / 2.0) - p.width / 2.0;
-        let centered_top = (t.y + t.height / 2.0) - p.height / 2.0;
+        let centered_left = clamp_axis((t.x + t.width / 2.0) - p.width / 2.0, p.width, vw, g);
+        let centered_top = clamp_axis((t.y + t.height / 2.0) - p.height / 2.0, p.height, vh, g);
 
         let preferred = if preferred == Placement::Auto {
             Placement::Bottom
@@ -157,6 +158,18 @@ impl Anchor {
     }
 }
 
+/// Shift `start` so a panel of `size` keeps `margin` clear of both viewport
+/// edges (`0..extent`). When the panel is wider than the viewport the start
+/// edge wins so the panel's beginning stays reachable; an unknown viewport
+/// (`extent <= 0`, no `window`) leaves the coordinate untouched.
+#[cfg(any(target_arch = "wasm32", test))]
+fn clamp_axis(start: f64, size: f64, extent: f64, margin: f64) -> f64 {
+    if extent <= 0.0 {
+        return start;
+    }
+    start.min(extent - size - margin).max(margin)
+}
+
 impl Placement {
     /// Tailwind position classes for this side + alignment, computed once so
     /// popover / dropdown / tooltip don't each re-`match` the placement.
@@ -200,7 +213,7 @@ impl Placement {
 
 #[cfg(test)]
 mod tests {
-    use super::{Align, Anchor, Placement, Rect};
+    use super::{Align, Anchor, Placement, Rect, clamp_axis};
 
     #[test]
     fn auto_resolves_to_bottom() {
@@ -326,6 +339,65 @@ mod tests {
         let r = anchor(trigger, panel()).resolve(Placement::Right);
         assert_eq!(r.side, Placement::Left);
         assert_eq!(r.left, 772.0); // 900 - 120 - 8
+    }
+
+    #[test]
+    fn bottom_clamps_left_edge_into_viewport() {
+        // Trigger hugging the left edge: centering would put `left` at -35.
+        let trigger = Rect {
+            x: 0.0,
+            y: 400.0,
+            width: 50.0,
+            height: 20.0,
+        };
+        let r = anchor(trigger, panel()).resolve(Placement::Bottom);
+        assert_eq!(r.side, Placement::Bottom);
+        assert_eq!(r.left, 8.0); // gap acts as the viewport margin
+    }
+
+    #[test]
+    fn top_clamps_right_edge_into_viewport() {
+        let trigger = Rect {
+            x: 960.0,
+            y: 400.0,
+            width: 40.0,
+            height: 20.0,
+        };
+        let r = anchor(trigger, panel()).resolve(Placement::Top);
+        assert_eq!(r.side, Placement::Top);
+        assert_eq!(r.left, 872.0); // 1000 - 120 - 8
+    }
+
+    #[test]
+    fn left_right_clamp_top_edge_into_viewport() {
+        let trigger = Rect {
+            x: 400.0,
+            y: 0.0,
+            width: 100.0,
+            height: 20.0,
+        };
+        let r = anchor(trigger, panel()).resolve(Placement::Left);
+        assert_eq!(r.side, Placement::Left);
+        assert_eq!(r.top, 8.0);
+
+        let trigger = Rect {
+            x: 400.0,
+            y: 790.0,
+            width: 100.0,
+            height: 10.0,
+        };
+        let r = anchor(trigger, panel()).resolve(Placement::Right);
+        assert_eq!(r.side, Placement::Right);
+        assert_eq!(r.top, 752.0); // 800 - 40 - 8
+    }
+
+    #[test]
+    fn clamp_keeps_start_edge_when_panel_wider_than_viewport() {
+        assert_eq!(clamp_axis(-50.0, 2000.0, 1000.0, 8.0), 8.0);
+        // Unknown viewport: no clamping.
+        assert_eq!(clamp_axis(-50.0, 120.0, 0.0, 8.0), -50.0);
+        // Already inside: untouched.
+        assert_eq!(clamp_axis(390.0, 120.0, 1000.0, 8.0), 390.0);
     }
 
     #[test]

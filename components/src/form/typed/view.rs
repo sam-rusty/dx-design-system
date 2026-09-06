@@ -13,14 +13,15 @@ use ds_utils::format::{PhoneFormat, merge};
 use super::binding::{BoundField, FieldHandle};
 use super::form::{Form as FormStore, TypedFormData};
 use crate::checkbox::CheckboxRow;
-use crate::copyable::copy_to_clipboard;
-use crate::form::view::{BoundInput, FormFieldWrapper, TypedKind};
+use crate::form::view::{ActionWiring, BoundInput, FormFieldWrapper, TypedKind, form_element};
 use crate::form::{FieldContext, FieldLabel, FormSubmitProp, SubmitFn};
-use crate::icon::{Icon, IconName};
 use crate::input::{FieldSize, InputType};
 use crate::select::{SelectControl, SelectOption};
 use crate::textarea::{TextAreaControl, TextAreaResize};
-use crate::{Alert, AlertVariant};
+
+// Shared with the dynamic flavour: both read the field through
+// `use_field_binding` / the field error snapshot.
+pub use crate::form::view::{FieldActions, FieldActionsProps, FormError, FormErrorProps};
 
 /// Form-level context for typed forms: submit wiring and the derived
 /// disabled flag. Field-level state travels through `Signal<BoundField>`
@@ -46,36 +47,17 @@ pub fn FormProvider<T>(
 where
     T: TypedFormData + Send + Sync + 'static,
 {
-    let action = action.0;
-    let submit = action.map(|action| {
-        use_hook(move || {
-            CopyValue::new_in_scope(
-                Box::new(move || {
-                    form.submit(move |data| action.call(data));
-                }) as SubmitFn,
-                ScopeId::ROOT,
-            )
-        })
-    });
+    let ActionWiring { disabled, submit } = crate::form::view::use_action_wiring(
+        action.0,
+        loading,
+        inline_error,
+        move |action| form.submit(move |data| action.call(data)),
+        move |err| form.set_server_error(err),
+    );
 
     let global_error = use_hook(move || {
-        CopyValue::new_in_scope(
-            Box::new(move || form.global_error()) as Box<dyn Fn() -> Option<String>>,
-            ScopeId::ROOT,
-        )
+        CopyValue::new(Box::new(move || form.global_error()) as Box<dyn Fn() -> Option<String>>)
     });
-
-    use_effect(move || {
-        if inline_error && let Some(Some(Err(err))) = action.map(|a| a.result()) {
-            form.set_server_error(err);
-        }
-    });
-
-    let disabled: Option<Memo<bool>> = match (action, loading) {
-        (Some(action), _) => Some(use_memo(move || action.pending())),
-        (None, Some(sig)) => Some(use_memo(move || sig())),
-        (None, None) => None,
-    };
 
     // The store itself rides context too, so controls can resolve bare-lens
     // `field:` props (`MyForm::name`) without an explicit `form.field(...)`.
@@ -100,36 +82,15 @@ pub fn Form(
     children: Element,
 ) -> Element {
     let ctx = use_context::<FormContext>();
-    let merged_class = merge(&["w-full", &class]);
-
-    let is_disabled = ctx.disabled.map(|d| d()).unwrap_or(false);
     let global_error = (ctx.global_error.read())();
-
-    rsx! {
-        form {
-            class: "{merged_class}",
-            action: "javascript:void(0);",
-            onsubmit: move |ev| {
-                ev.prevent_default();
-                if ctx.disabled.map(|d| d()).unwrap_or(false) {
-                    return;
-                }
-                if let Some(cb) = &on_submit {
-                    cb.call(ev);
-                } else if let Some(mut submit) = ctx.submit {
-                    (submit.write())();
-                }
-            },
-            fieldset {
-                disabled: is_disabled,
-                class: "border-0 p-0 m-0 min-w-0 w-full",
-                {children}
-            }
-            if let Some(err) = global_error {
-                Alert { variant: AlertVariant::Destructive, class: "mt-4", "{err}" }
-            }
-        }
-    }
+    form_element(
+        ctx.disabled,
+        ctx.submit,
+        global_error,
+        class,
+        on_submit,
+        children,
+    )
 }
 
 /// Field scope for a typed form: provides the erased binding to descendant
@@ -143,21 +104,24 @@ pub fn FormField(#[props(into)] field: FieldHandle, children: Element) -> Elemen
         init.register();
         Signal::new(init)
     });
-    // Path changed under the same component instance (row re-key): swap the
-    // context binding and move the registration.
-    if *ctx_field.peek() != field {
-        ctx_field.peek().unregister();
-        field.register();
-        *ctx_field.write_unchecked() = field.clone();
-    }
-    use_drop(move || {
-        ctx_field.peek().unregister();
-    });
-
     use_context_provider(|| ctx_field);
     // Legacy field context so shared pieces (`FieldLabel`) resolve the name.
     use_context_provider(|| FieldContext {
         name: Arc::from(field.path()),
+    });
+    // Path changed under the same component instance (row re-key): swap the
+    // context binding, move the registration (owner-aware, so a sibling that
+    // already took this path keeps its entry) and refresh the name context.
+    if *ctx_field.peek() != field {
+        ctx_field.peek().unregister();
+        field.register();
+        *ctx_field.write_unchecked() = field.clone();
+        provide_context(FieldContext {
+            name: Arc::from(field.path()),
+        });
+    }
+    use_drop(move || {
+        ctx_field.peek().unregister();
     });
 
     let invalid = use_memo(move || ctx_field.read().invalid());
@@ -165,89 +129,6 @@ pub fn FormField(#[props(into)] field: FieldHandle, children: Element) -> Elemen
 
     rsx! {
         FormFieldWrapper { data_name: "FormField".to_string(), data_invalid, {children} }
-    }
-}
-
-/// Inline error for the surrounding [`FormField`], shown once touched.
-#[component]
-pub fn FormError(#[props(default)] class: String) -> Element {
-    let ctx_field = use_context::<Signal<BoundField>>();
-    let bound = ctx_field.read();
-
-    if !bound.is_touched() {
-        return rsx! {};
-    }
-    let Some(err) = bound.error() else {
-        return rsx! {};
-    };
-    let err_class = merge(&["text-destructive text-xs font-medium ml-1 mt-1", &class]);
-    let err_id = format!("{}-error", bound.path());
-    rsx! {
-        div {
-            role: "alert",
-            "aria-live": "polite",
-            id: "{err_id}",
-            class: "{err_class}",
-            span { "{err}" }
-        }
-    }
-}
-
-/// Copy + clear action buttons for the surrounding [`FormField`].
-#[component]
-pub fn FieldActions(
-    #[props(default)] copyable: bool,
-    #[props(default)] clearable: bool,
-    #[props(default)] class: String,
-) -> Element {
-    let ctx_field = use_context::<Signal<BoundField>>();
-
-    let has_value = ctx_field.read().has_value();
-    let copied = use_signal(|| false);
-
-    let container_class = merge(&[
-        "absolute end-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 z-10",
-        &class,
-    ]);
-    let container_style = if has_value { "" } else { "display:none" };
-
-    let copy_icon = if copied() {
-        IconName::CopyCheck
-    } else {
-        IconName::Copy
-    };
-    let copy_title = if copied() { "Copied!" } else { "Copy" };
-
-    rsx! {
-        div { class: "{container_class}", style: "{container_style}",
-            if copyable {
-                button {
-                    r#type: "button",
-                    tabindex: -1,
-                    title: "{copy_title}",
-                    class: "p-1.5 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-colors cursor-pointer",
-                    onclick: move |_| {
-                        let val = ctx_field.peek().display();
-                        if !val.is_empty() {
-                            copy_to_clipboard(val, copied);
-                        }
-                    },
-                    Icon { name: copy_icon, class: "size-3.5" }
-                }
-            }
-            if clearable {
-                button {
-                    r#type: "button",
-                    tabindex: -1,
-                    title: "Clear",
-                    class: "p-1.5 rounded-md text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-colors cursor-pointer",
-                    onclick: move |_| {
-                        ctx_field.peek().clear();
-                    },
-                    Icon { name: IconName::X, class: "size-3.5" }
-                }
-            }
-        }
     }
 }
 

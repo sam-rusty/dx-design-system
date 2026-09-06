@@ -10,23 +10,28 @@
 //! the common denominator behind most of the audit's accessibility,
 //! controlled-state, and overlay findings.
 
+mod autofocus;
 mod controlled;
 mod dismiss;
 mod focus;
 mod overlay;
+mod prop_signal;
 mod timeout;
 mod unique_id;
 
+pub use autofocus::AutofocusGate;
+pub(crate) use autofocus::use_gated_autofocus;
 pub(crate) use controlled::use_controlled;
 use dioxus::prelude::*;
 pub(crate) use dismiss::{use_dismiss_on_viewport_change, use_outside_dismiss_panel};
-pub use dismiss::{use_escape_listener, use_outside_dismiss};
+pub use dismiss::{use_escape_listener, use_escape_listener_open, use_outside_dismiss};
 pub(crate) use focus::{
     FocusState, use_focus_control, use_focus_control_disabled, use_focus_entry_disabled,
     use_focus_provider,
 };
-pub(crate) use overlay::use_overlay;
-pub(crate) use timeout::use_timeout;
+pub(crate) use overlay::{use_focus_restore, use_overlay};
+pub(crate) use prop_signal::{root_context, use_prop_signal};
+pub(crate) use timeout::{Timer, use_timeout, use_timer};
 pub(crate) use unique_id::use_unique_id;
 
 /// Run `effect`, and run the cleanup it returns before the next run and on

@@ -62,6 +62,46 @@ impl SegmentColor {
     }
 }
 
+/// Percentage sanitised for rendering: non-finite → 0, otherwise clamped to `0..=100`.
+pub(super) fn safe_pct(pct: f64) -> f64 {
+    if pct.is_finite() {
+        pct.clamp(0.0, 100.0)
+    } else {
+        0.0
+    }
+}
+
+/// Default accessible label built from the data: `"<kind>: A 40%, B 60%"`.
+pub(super) fn segments_label(kind: &str, segments: &[ChartSegment]) -> String {
+    let parts: Vec<String> = segments
+        .iter()
+        .map(|s| format!("{} {:.0}%", s.label, safe_pct(s.pct)))
+        .collect();
+    format!("{kind}: {}", parts.join(", "))
+}
+
+/// `(dash_length, dash_offset)` per segment for a circle of circumference `c`.
+///
+/// Non-finite / negative percentages render as empty arcs and the running total
+/// is capped at 100% so later segments never overlap earlier ones.
+fn donut_arcs(segments: &[ChartSegment], c: f64) -> Vec<(f64, f64)> {
+    let mut acc_pct = 0.0_f64;
+    segments
+        .iter()
+        .map(|seg| {
+            let pct = safe_pct(seg.pct).min(100.0 - acc_pct);
+            let len = c * pct / 100.0;
+            let offset = if acc_pct > 0.0 {
+                -(c * acc_pct / 100.0)
+            } else {
+                0.0
+            };
+            acc_pct += pct;
+            (len, offset)
+        })
+        .collect()
+}
+
 /// Multi-segment donut chart.
 ///
 /// Arc transitions use CSS (`transition-[stroke-dasharray,stroke-dashoffset] duration-500`).
@@ -78,27 +118,23 @@ pub fn DonutChart(
     let r = 40.0_f64;
     let c = 2.0 * std::f64::consts::PI * r;
 
-    // Precompute (dash_length, dash_offset) per segment; recomputed only on data change.
-    let arcs = use_memo(use_reactive!(|segments| {
-        let mut acc = 0.0_f64;
-        segments
-            .iter()
-            .map(|seg: &ChartSegment| {
-                let len = c * seg.pct.clamp(0.0, 100.0) / 100.0;
-                let offset = -acc;
-                acc += len;
-                (len, offset)
-            })
-            .collect::<Vec<(f64, f64)>>()
-    }));
-    let arcs = arcs();
+    // A handful of multiplications: cheaper than memoising (which clones + compares
+    // the segment list every render).
+    let arcs = donut_arcs(&segments, c);
+    let label = aria_label.unwrap_or_else(|| segments_label("Donut chart", &segments));
+    let center_pct = if center_pct.is_finite() {
+        center_pct
+    } else {
+        0.0
+    };
 
     rsx! {
         svg {
             class: "size-44 shrink-0",
             view_box: "0 0 100 100",
             role: "img",
-            "aria-label": aria_label,
+            "aria-label": "{label}",
+            title { "{label}" }
             circle {
                 cx: "50",
                 cy: "50",
@@ -142,5 +178,73 @@ pub fn DonutChart(
                 "{center_pct:.1}%"
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seg(pct: f64) -> ChartSegment {
+        ChartSegment {
+            label: "x".into(),
+            pct,
+            color: SegmentColor::Primary,
+        }
+    }
+
+    #[test]
+    fn donut_arcs_single_full_segment_covers_circumference() {
+        let c = 100.0;
+        let arcs = donut_arcs(&[seg(100.0)], c);
+        assert_eq!(arcs, vec![(100.0, 0.0)]);
+    }
+
+    #[test]
+    fn donut_arcs_offsets_accumulate() {
+        let arcs = donut_arcs(&[seg(25.0), seg(50.0)], 100.0);
+        assert_eq!(arcs, vec![(25.0, 0.0), (50.0, -25.0)]);
+    }
+
+    #[test]
+    fn donut_arcs_caps_sum_at_100() {
+        // E11: segments summing past 100% must not overlap.
+        let arcs = donut_arcs(&[seg(80.0), seg(50.0)], 100.0);
+        assert_eq!(arcs, vec![(80.0, 0.0), (20.0, -80.0)]);
+        let arcs = donut_arcs(&[seg(150.0)], 100.0);
+        assert_eq!(arcs, vec![(100.0, 0.0)]);
+    }
+
+    #[test]
+    fn donut_arcs_non_finite_and_negative_become_zero() {
+        // E11: NaN would otherwise leak into `stroke-dasharray`.
+        let arcs = donut_arcs(&[seg(f64::NAN), seg(-5.0), seg(f64::INFINITY)], 100.0);
+        assert_eq!(arcs, vec![(0.0, 0.0), (0.0, 0.0), (0.0, 0.0)]);
+        assert!(arcs.iter().all(|(l, o)| l.is_finite() && o.is_finite()));
+    }
+
+    #[test]
+    fn safe_pct_clamps() {
+        assert_eq!(safe_pct(f64::NAN), 0.0);
+        assert_eq!(safe_pct(-1.0), 0.0);
+        assert_eq!(safe_pct(120.0), 100.0);
+        assert_eq!(safe_pct(42.5), 42.5);
+    }
+
+    #[test]
+    fn default_label_lists_segments() {
+        let segs = [
+            ChartSegment {
+                label: "A".into(),
+                pct: 40.0,
+                color: SegmentColor::Primary,
+            },
+            ChartSegment {
+                label: "B".into(),
+                pct: 60.0,
+                color: SegmentColor::Accent,
+            },
+        ];
+        assert_eq!(segments_label("Donut", &segs), "Donut: A 40%, B 60%");
     }
 }

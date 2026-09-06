@@ -3,14 +3,9 @@ use strum_macros::AsRefStr;
 
 use ds_utils::format::merge;
 
-use crate::hooks::use_controlled;
+use crate::hooks::{use_controlled, use_gated_autofocus};
 
-/// Reactive gate an app can provide around a screen: while it reads `false`,
-/// [`InputBase`] holds its autofocus. Lets a nav host defer the keyboard until
-/// the screen's enter transition settles, so the keyboard slide doesn't fight
-/// the push animation. Apps that never provide it get plain on-mount autofocus.
-#[derive(Clone, Copy)]
-pub struct AutofocusGate(pub ReadSignal<bool>);
+pub use crate::hooks::AutofocusGate;
 
 /// Visual size scale shared by the field family (`InputBase`, the typed input
 /// bases, and their form-bound wrappers).
@@ -117,6 +112,8 @@ impl FieldSize {
     }
 
     /// Full class string for form-bound controls that receive no class override.
+    /// No caller in the workspace; kept for API compatibility.
+    #[doc(hidden)]
     pub fn form_control_fallback_merge(self) -> String {
         let t = self.tokens();
         merge(&[FORM_BASE, t.height, t.px, t.py, t.text])
@@ -223,22 +220,7 @@ pub fn InputBase(props: InputBaseProps) -> Element {
     let type_str = props.r#type.as_ref();
     let actual_placeholder = props.placeholder.clone().unwrap_or_default();
 
-    // Autofocus waits for the AutofocusGate (when provided) so the keyboard
-    // doesn't open mid-transition; without a gate it fires on mount.
-    let autofocus = props.autofocus;
-    let gate = try_consume_context::<AutofocusGate>();
-    let mut mounted = use_signal(|| None::<std::rc::Rc<MountedData>>);
-    let mut focus_fired = use_signal(|| false);
-    use_effect(move || {
-        if !autofocus || focus_fired() || gate.is_some_and(|g| !(g.0)()) {
-            return;
-        }
-        let Some(md) = mounted() else { return };
-        focus_fired.set(true);
-        spawn(async move {
-            let _ = md.set_focus(true).await;
-        });
-    });
+    let onmounted = use_gated_autofocus(props.autofocus);
 
     let on_commit = props.on_commit;
     let on_blur = props.on_blur;
@@ -251,7 +233,7 @@ pub fn InputBase(props: InputBaseProps) -> Element {
             r#type: type_str,
             class: "{merged_class}",
             placeholder: actual_placeholder,
-            onmounted: move |evt: MountedEvent| mounted.set(Some(evt.data())),
+            onmounted,
             id: props.id.clone(),
             disabled: disabled(),
             "aria-invalid": props.aria_invalid.clone(),

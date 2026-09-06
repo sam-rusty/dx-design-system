@@ -8,6 +8,22 @@ use crate::form::view::{FormError, FormField, LabelHint};
 use crate::hooks::{FocusState, use_focus_control, use_focus_entry_disabled, use_focus_provider};
 use crate::label::Label;
 
+const RADIO_WRAPPER: &str = "group/radio relative inline-flex items-center justify-center size-[18px] shrink-0 cursor-pointer select-none";
+const RADIO_WRAPPER_STATES: &str =
+    "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50";
+const RADIO_DOT_CHECKED: &str =
+    "size-[18px] rounded-full border-[5px] border-primary transition-all duration-150";
+const RADIO_DOT_UNCHECKED: &str =
+    "size-[18px] rounded-full border-2 border-muted-foreground/40 transition-all duration-150";
+
+fn radio_dot_class(checked: bool) -> &'static str {
+    if checked {
+        RADIO_DOT_CHECKED
+    } else {
+        RADIO_DOT_UNCHECKED
+    }
+}
+
 #[derive(Default, Clone, Copy, PartialEq, Eq, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum RadioGroupDirection {
@@ -53,7 +69,9 @@ pub struct RadioGroupProps {
     /// Help tooltip rendered inline after the group label.
     #[props(default)]
     pub tooltip: Option<Element>,
-    /// Extra items rendered after the options.
+    /// Extra content rendered after the options (inside the `radiogroup`).
+    /// Items are private to the group, so this cannot add options — use
+    /// `options` for those.
     #[props(default)]
     pub children: Option<Element>,
 }
@@ -138,13 +156,16 @@ fn RadioGroupItem(
 
     // Register with roving focus + receive DOM focus when this index becomes active.
     let idx = use_signal(|| index);
+    // `is_disabled` is a `ReadSignal` (Copy); the closure form satisfies the
+    // `Fn() -> bool + Copy + 'static` bound clippy's suggested `&*` does not.
+    #[allow(clippy::redundant_closure)]
     use_focus_entry_disabled(ctx.focus, idx, move || is_disabled());
     let on_mounted = use_focus_control(ctx.focus, idx);
 
     let radio_id = format!("{}-{}", binding.name, value);
     let radio_id_label = radio_id.clone();
     let name_str = binding.id.clone();
-    let aria_describedby = binding.aria_describedby.clone();
+    let aria_describedby = binding.aria_describedby_when_invalid();
 
     let is_checked = ctx.selected.with(|s| s == &value);
     let any_selected = ctx.selected.with(|s| !s.is_empty());
@@ -159,16 +180,8 @@ fn RadioGroupItem(
     let aria_invalid = binding.aria_invalid();
     let select = binding.on_commit;
 
-    let wrapper_class = merge(&[
-        "group/radio relative inline-flex items-center justify-center size-[18px] shrink-0 cursor-pointer select-none",
-        "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
-        &class,
-    ]);
-    let span_class = if is_checked {
-        "size-[18px] rounded-full border-[5px] border-primary transition-all duration-150"
-    } else {
-        "size-[18px] rounded-full border-2 border-muted-foreground/40 transition-all duration-150"
-    };
+    let wrapper_class = merge(&[RADIO_WRAPPER, RADIO_WRAPPER_STATES, &class]);
+    let span_class = radio_dot_class(is_checked);
 
     let value_click = value.clone();
     let options = ctx.options;
@@ -189,6 +202,9 @@ fn RadioGroupItem(
                 disabled: is_disabled(),
                 class: "{wrapper_class}",
                 onmounted: on_mounted,
+                // Keep the roving state in step with pointer/Tab focus so arrow
+                // navigation starts from the item that actually has focus.
+                onfocus: move |_| focus.set_focus(Some(index)),
                 onclick: move |ev| {
                     ev.stop_propagation();
                     if !is_disabled() {
@@ -199,19 +215,23 @@ fn RadioGroupItem(
                     if is_disabled() || options.is_empty() {
                         return;
                     }
-                    let len = options.len();
-                    let target = match ev.key() {
-                        Key::ArrowDown | Key::ArrowRight => (index + 1) % len,
-                        Key::ArrowUp | Key::ArrowLeft => (index + len - 1) % len,
-                        Key::Home => 0,
-                        Key::End => len - 1,
+                    match ev.key() {
+                        Key::ArrowDown | Key::ArrowRight => {
+                            focus.set_focus(Some(index));
+                            focus.focus_next();
+                        }
+                        Key::ArrowUp | Key::ArrowLeft => {
+                            focus.set_focus(Some(index));
+                            focus.focus_prev();
+                        }
+                        Key::Home => focus.focus_first(),
+                        Key::End => focus.focus_last(),
                         _ => return,
-                    };
+                    }
                     ev.prevent_default();
-                    // Move roving focus (DOM focus follows via the focus-control hook)
-                    // and select on focus, per the WAI-ARIA radio pattern.
-                    focus.set_focus(Some(target));
-                    if let Some((v, _)) = options.get(target) {
+                    // Roving focus moved (DOM focus follows via the focus-control
+                    // hook); select on focus, per the WAI-ARIA radio pattern.
+                    if let Some((v, _)) = (focus.current_focus)().and_then(|i| options.get(i)) {
                         select.call(v.to_string());
                     }
                 },
@@ -244,22 +264,17 @@ pub struct RadioProps {
     /// Fired with `value` when the radio is clicked.
     #[props(default)]
     pub on_select: Callback<String>,
+    /// Additional attributes (`id`, `name`, `aria-label`, `aria-labelledby`, ...).
+    #[props(extends = GlobalAttributes, extends = button)]
+    pub attributes: Vec<Attribute>,
 }
 
 /// Standalone controlled radio button for non-form contexts that own their own
 /// selection state (e.g. inline option pickers).
 pub fn Radio(props: RadioProps) -> Element {
-    let wrapper_class = merge(&[
-        "group/radio relative inline-flex items-center justify-center size-[18px] shrink-0 cursor-pointer select-none",
-        "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
-        &props.class,
-    ]);
+    let wrapper_class = merge(&[RADIO_WRAPPER, RADIO_WRAPPER_STATES, &props.class]);
     let radio_value = props.value.clone().unwrap_or_default();
-    let span_class = if props.checked {
-        "size-[18px] rounded-full border-[5px] border-primary transition-all duration-150"
-    } else {
-        "size-[18px] rounded-full border-2 border-muted-foreground/40 transition-all duration-150"
-    };
+    let span_class = radio_dot_class(props.checked);
 
     let checked = props.checked;
     let disabled = props.disabled;
@@ -277,6 +292,7 @@ pub fn Radio(props: RadioProps) -> Element {
                 ev.stop_propagation();
                 on_select.call(radio_value.clone());
             },
+            ..props.attributes,
             span { class: "{span_class}" }
         }
     }

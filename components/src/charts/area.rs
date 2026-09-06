@@ -169,6 +169,24 @@ fn compute_area_render(
     y_format: fn(f64) -> String,
     x_labels: Option<&Vec<String>>,
 ) -> AreaRender {
+    // Non-finite points would produce `M NaN NaN` paths and poison the axis
+    // extents for every other series, so they are dropped up front.
+    let series: Vec<LineSeries> = series
+        .iter()
+        .map(|s| LineSeries {
+            label: s.label.clone(),
+            color: s.color,
+            points: s
+                .points
+                .iter()
+                .filter(|p| p.x.is_finite() && p.y.is_finite())
+                .cloned()
+                .collect(),
+            fill: s.fill,
+        })
+        .collect();
+    let series = series.as_slice();
+
     let (x_min, x_max, y_min, y_max) = {
         let mut xn = f64::INFINITY;
         let mut xx = f64::NEG_INFINITY;
@@ -185,13 +203,15 @@ fn compute_area_render(
         if xn == f64::INFINITY {
             (0.0, 1.0, 0.0, 1.0)
         } else {
-            // Always include zero on y-axis so filled areas anchor to the baseline.
-            (
-                xn,
-                xx.max(xn + f64::EPSILON),
-                0.0_f64.min(yn),
-                yx.max(yn + f64::EPSILON),
-            )
+            // Always include zero on the y-axis so filled areas anchor to the baseline.
+            let y_min = 0.0_f64.min(yn);
+            let mut y_max = 0.0_f64.max(yx);
+            // Flat data (e.g. an all-zero period) gets a unit range instead of an
+            // epsilon one, which would otherwise render five identical tick labels.
+            if y_max - y_min < 1e-9 {
+                y_max = y_min + 1.0;
+            }
+            (xn, xx.max(xn + f64::EPSILON), y_min, y_max)
         }
     };
 
@@ -275,7 +295,7 @@ fn compute_area_render(
 
     let marker_renders: Vec<MarkerRender> = markers
         .iter()
-        .filter(|m| m.x >= x_min && m.x <= x_max)
+        .filter(|m| m.x.is_finite() && m.x >= x_min && m.x <= x_max)
         .map(|m| MarkerRender {
             sx: svg_x(m.x, x_min, x_max),
             label: m.label.clone(),
@@ -315,6 +335,15 @@ fn compute_area_render(
     }
 }
 
+/// Default accessible label built from the data: `"Line chart: A (3 points), B (2 points)"`.
+fn default_aria_label(series: &[LineSeries]) -> String {
+    let parts: Vec<String> = series
+        .iter()
+        .map(|s| format!("{} ({} points)", s.label, s.points.len()))
+        .collect();
+    format!("Line chart: {}", parts.join(", "))
+}
+
 /// SVG area+line chart supporting multiple series and optional vertical markers.
 ///
 /// The chart is responsive (`width="100%"`) with a fixed SVG height of 296 units.
@@ -332,6 +361,7 @@ pub fn AreaLineChart(
     #[props(default)]
     aria_label: Option<String>,
 ) -> Element {
+    let label = aria_label.unwrap_or_else(|| default_aria_label(&series));
     // Path/label math recomputed only when the data inputs change.
     let render = use_memo(use_reactive!(|(series, markers, x_labels)| {
         compute_area_render(&series, &markers, y_format, x_labels.as_ref())
@@ -353,7 +383,8 @@ pub fn AreaLineChart(
             height: "{H}",
             view_box: VIEW_BOX,
             role: "img",
-            "aria-label": aria_label,
+            "aria-label": "{label}",
+            title { "{label}" }
 
             // ── Y-axis grid lines + labels ─────────────────────────────────
             for (i, gl) in grid_lines.iter().enumerate() {
@@ -392,9 +423,9 @@ pub fn AreaLineChart(
             }
 
             // ── X-axis labels ──────────────────────────────────────────────
-            for xl in x_labels.iter() {
+            for (i, xl) in x_labels.iter().enumerate() {
                 text {
-                    key: "xlabel-{xl.label}",
+                    key: "xlabel-{i}",
                     x: "{xl.sx:.2}",
                     y: "{plot_bottom + 14.0:.2}",
                     text_anchor: "middle",
@@ -441,8 +472,8 @@ pub fn AreaLineChart(
             }
 
             // ── Vertical markers ───────────────────────────────────────────
-            for mr in marker_renders.iter() {
-                g { key: "marker-{mr.label}",
+            for (i, mr) in marker_renders.iter().enumerate() {
+                g { key: "marker-{i}",
                     line {
                         x1: "{mr.sx:.2}",
                         y1: "{PAD_TOP:.2}",
@@ -484,5 +515,178 @@ pub fn AreaLineChart(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pts(ys: &[f64]) -> Vec<LinePoint> {
+        ys.iter()
+            .enumerate()
+            .map(|(i, &y)| LinePoint { x: i as f64, y })
+            .collect()
+    }
+
+    fn series(ys: &[f64], fill: bool) -> LineSeries {
+        LineSeries {
+            label: "s".into(),
+            color: SegmentColor::Primary,
+            points: pts(ys),
+            fill,
+        }
+    }
+
+    fn fmt(v: f64) -> String {
+        format!("{v:.0}")
+    }
+
+    #[test]
+    fn nice_ticks_normal_range_is_rounded_and_bounded() {
+        let t = nice_ticks(0.0, 100.0, 5);
+        // raw step 25 → snaps up to 50.
+        assert_eq!(t, vec![0.0, 50.0, 100.0]);
+        let t = nice_ticks(3.0, 97.0, 5);
+        assert!(t.len() <= 7, "{t:?}");
+        assert!(
+            t.iter().all(|v| *v >= 3.0 - 1e-9 && *v <= 97.0 + 1e-9),
+            "{t:?}"
+        );
+    }
+
+    #[test]
+    fn nice_ticks_count_below_two_and_flat() {
+        assert_eq!(nice_ticks(0.0, 10.0, 1), vec![0.0, 10.0]);
+        assert_eq!(nice_ticks(4.0, 4.0, 5), vec![4.0]);
+    }
+
+    #[test]
+    fn nice_ticks_negative_only_and_extreme_magnitudes() {
+        let t = nice_ticks(-50.0, -10.0, 5);
+        assert!(t.len() >= 2 && t.len() <= 7, "{t:?}");
+        assert!(
+            t.iter().all(|v| *v <= -10.0 + 1e-9 && *v >= -50.0 - 1e-9),
+            "{t:?}"
+        );
+        let t = nice_ticks(0.0, 1e12, 5);
+        assert!(t.len() <= 7 && t.len() >= 2, "{t:?}");
+        let t = nice_ticks(0.0, 1e-6, 5);
+        assert!(t.len() <= 7 && t.len() >= 2, "{t:?}");
+    }
+
+    #[test]
+    fn nice_ticks_flat_zero_yields_distinct_labels() {
+        // E4: an all-zero series must not produce a stack of identical "0" ticks.
+        fn fmt2(v: f64) -> String {
+            format!("{v:.2}")
+        }
+        let r = compute_area_render(&[series(&[0.0, 0.0, 0.0], true)], &[], fmt2, None);
+        let labels: Vec<&str> = r.grid_lines.iter().map(|g| g.label.as_str()).collect();
+        let mut dedup = labels.clone();
+        dedup.dedup();
+        assert_eq!(labels, dedup, "duplicate tick labels: {labels:?}");
+        assert!(labels.len() >= 2, "{labels:?}");
+        // Unit range: the top tick is 1, not 2e-16.
+        assert_eq!(labels.last().copied(), Some("1.00"));
+        // The flat line sits on the baseline.
+        let d = &r.series_renders[0].line_d;
+        assert!(d.contains(&format!("{:.2}", r.plot_bottom)), "{d}");
+    }
+
+    #[test]
+    fn non_finite_points_are_dropped() {
+        // E4: NaN / inf must not reach the path string or poison the axes.
+        let mut s = series(&[1.0, 2.0, 3.0], false);
+        s.points.push(LinePoint {
+            x: 3.0,
+            y: f64::NAN,
+        });
+        s.points.push(LinePoint {
+            x: f64::INFINITY,
+            y: 1.0,
+        });
+        let r = compute_area_render(&[s], &[], fmt, None);
+        let sr = &r.series_renders[0];
+        assert!(
+            !sr.line_d.contains("NaN") && !sr.line_d.contains("inf"),
+            "{}",
+            sr.line_d
+        );
+        assert_eq!(sr.line_d.matches('L').count(), 2, "{}", sr.line_d);
+        assert!(r.grid_lines.iter().all(|g| !g.label.contains("NaN")));
+    }
+
+    #[test]
+    fn polyline_d_formats() {
+        assert_eq!(polyline_d(&[]), "");
+        assert_eq!(polyline_d(&[(1.0, 2.0)]), "M 1.00 2.00");
+        assert_eq!(
+            polyline_d(&[(1.0, 2.0), (3.456, 4.0)]),
+            "M 1.00 2.00 L 3.46 4.00"
+        );
+    }
+
+    #[test]
+    fn svg_coords_degenerate_ranges() {
+        assert_eq!(svg_x(5.0, 5.0, 5.0), PAD_LEFT);
+        assert_eq!(svg_y(5.0, 5.0, 5.0), PAD_TOP + PLOT_H);
+        assert_eq!(svg_x(0.0, 0.0, 10.0), PAD_LEFT);
+        assert!((svg_x(10.0, 0.0, 10.0) - (PAD_LEFT + PLOT_W)).abs() < 1e-9);
+        assert!((svg_y(10.0, 0.0, 10.0) - PAD_TOP).abs() < 1e-9);
+    }
+
+    #[test]
+    fn compute_area_render_empty_and_single_point() {
+        let r = compute_area_render(&[], &[], fmt, None);
+        assert!(r.series_renders.is_empty());
+        assert_eq!(r.grid_lines.first().map(|g| g.label.as_str()), Some("0"));
+        assert_eq!(r.grid_lines.last().map(|g| g.label.as_str()), Some("1"));
+
+        let r = compute_area_render(&[series(&[3.0], true)], &[], fmt, None);
+        let sr = &r.series_renders[0];
+        assert!(sr.single_point.is_some());
+        assert!(sr.line_d.is_empty() && sr.fill_d.is_none());
+    }
+
+    #[test]
+    fn fill_path_closes_at_plot_bottom() {
+        let r = compute_area_render(&[series(&[1.0, 2.0], true)], &[], fmt, None);
+        let fd = r.series_renders[0].fill_d.as_deref().unwrap();
+        assert!(fd.ends_with('Z'), "{fd}");
+        assert!(fd.contains(&format!("{:.2}", r.plot_bottom)), "{fd}");
+    }
+
+    #[test]
+    fn x_labels_use_index_with_step() {
+        let ys: Vec<f64> = (0..20).map(|i| i as f64).collect();
+        let labels: Vec<String> = (0..20).map(|i| format!("L{i}")).collect();
+        let r = compute_area_render(&[series(&ys, false)], &[], fmt, Some(&labels));
+        // 20 points → step 3 → indices 0,3,6,...
+        assert_eq!(r.x_labels[0].label, "L0");
+        assert_eq!(r.x_labels[1].label, "L3");
+        assert!(r.x_labels.len() <= 8);
+    }
+
+    #[test]
+    fn markers_outside_range_are_dropped() {
+        let m = |x: f64| LineMarker {
+            x,
+            label: "m".into(),
+            color: SegmentColor::Accent,
+        };
+        let r = compute_area_render(
+            &[series(&[1.0, 2.0, 3.0], false)],
+            &[m(-1.0), m(1.0), m(9.0)],
+            fmt,
+            None,
+        );
+        assert_eq!(r.marker_renders.len(), 1);
+    }
+
+    #[test]
+    fn default_label_describes_series() {
+        let l = default_aria_label(&[series(&[1.0, 2.0], false)]);
+        assert_eq!(l, "Line chart: s (2 points)");
     }
 }

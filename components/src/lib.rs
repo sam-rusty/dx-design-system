@@ -1,5 +1,10 @@
 #![recursion_limit = "256"]
 #![allow(non_snake_case)]
+// `rsx!` lowers `attr: "{value}"` to `format!("{}", value)`, which clippy flags
+// as `useless_format` at every string attribute (200+ sites). The lint has no
+// per-site opt-out inside the macro, so it is silenced crate-wide to keep the
+// remaining clippy output meaningful.
+#![allow(clippy::useless_format)]
 
 // ---- core (always compiled) ----
 
@@ -10,9 +15,8 @@ pub(crate) mod card;
 pub(crate) mod copyable;
 pub mod field_name;
 pub(crate) mod focus;
-// Shared behavior hooks — infrastructure consumed by component migrations
-// (see docs/audits/components-audit.md §3); allow dead_code until adopted.
-// unused_imports fires for re-exports whose consumers are feature-gated off.
+// Shared behavior hooks. `unused_imports`/`dead_code` fire for re-exports whose
+// only consumers are feature-gated off in a minimal build.
 #[allow(dead_code, unused_imports)]
 pub(crate) mod hooks;
 pub mod icon;
@@ -136,7 +140,7 @@ pub use card::{Card, CardVariant};
 pub use copyable::Copyable;
 pub use field_name::{Field, FieldArray, FieldKey, FieldName, FieldPath, FieldType, FormSchema};
 pub use focus::active_element_id;
-pub use hooks::{use_escape_listener, use_outside_dismiss};
+pub use hooks::{use_escape_listener, use_escape_listener_open, use_outside_dismiss};
 pub use icon::{Icon, IconName};
 pub use icon_bubble::{IconBubble, IconBubbleColor, IconBubbleSize};
 pub use label::Label;
@@ -230,7 +234,8 @@ pub use data_table::{
 #[cfg(feature = "date-picker")]
 pub use date_picker::{
     Date, DatePicker, DatePickerBase, DateRangePicker, DateTime, DateTimePicker,
-    DateTimePickerBase, commit_datetime_value, hour_12_to_24, hour_24_to_12, parse_datetime_value,
+    DateTimePickerBase, ParseDateError, commit_datetime_value, hour_12_to_24, hour_24_to_12,
+    parse_datetime_value,
 };
 #[cfg(feature = "data-table")]
 pub use list_view::{FetchFn, ListEmpty, ListPage, ListView, RenderFn};

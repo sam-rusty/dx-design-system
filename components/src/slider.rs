@@ -14,9 +14,31 @@ fn slider_value(x: f64, left: f64, width: f64, min: f32, max: f32, step: f32) ->
     ((raw / step).round() * step).clamp(min, max)
 }
 
+/// Keyboard step for the `role="slider"` thumb (WAI-ARIA slider pattern):
+/// Arrow keys move one `step`, PageUp/PageDown ten, Home/End jump to the
+/// bounds. `None` for keys the slider does not handle.
+fn slider_key_value(key: &Key, value: f32, min: f32, max: f32, step: f32) -> Option<f32> {
+    if step <= 0.0 || max <= min {
+        return None;
+    }
+    let target = match key {
+        Key::ArrowRight | Key::ArrowUp => value + step,
+        Key::ArrowLeft | Key::ArrowDown => value - step,
+        Key::PageUp => value + step * 10.0,
+        Key::PageDown => value - step * 10.0,
+        // Bounds are reachable even when they are not step multiples.
+        Key::Home => return Some(min),
+        Key::End => return Some(max),
+        _ => return None,
+    };
+    Some(((target / step).round() * step).clamp(min, max))
+}
+
 /// Labelled horizontal slider: label + value readout on top, scrubbable track
-/// below. Touch-driven; the track rect is re-measured on every touch-start so
-/// scroll position never stales the mapping.
+/// below. Pointer-driven (mouse, pen and touch share one path; the track keeps
+/// `touch-none` so a drag never scrolls the page) and keyboard-operable via the
+/// focusable `role="slider"` thumb. The track rect is re-measured on every
+/// pointer-down so scroll position never stales the mapping.
 #[component]
 pub fn Slider(
     label: String,
@@ -62,6 +84,11 @@ pub fn Slider(
         if dragging() { "scale-115" } else { "" },
     ]);
 
+    let aria_valuetext = match unit.as_deref() {
+        Some(u) => format!("{readout} {u}"),
+        None => readout.clone(),
+    };
+
     rsx! {
         div { class: "flex flex-col gap-2 py-3",
             div { class: "flex items-baseline justify-between",
@@ -75,21 +102,34 @@ pub fn Slider(
             }
             div {
                 class: "h-9 flex items-center touch-none",
-                ontouchstart: move |e| {
-                    if let Some(t) = e.touches().first() {
-                        begin(t.client_coordinates().x);
+                onpointerdown: move |e: PointerEvent| {
+                    // Capture the pointer on the track container so a drag that
+                    // leaves the element keeps delivering move/up events.
+                    #[cfg(feature = "web")]
+                    {
+                        use dioxus::web::WebEventExt;
+                        use wasm_bindgen::JsCast;
+                        let native = e.as_web_event();
+                        if let Some(el) = native
+                            .current_target()
+                            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                        {
+                            let _ = el.set_pointer_capture(e.pointer_id());
+                        }
                     }
+                    begin(e.client_coordinates().x);
                 },
-                ontouchmove: move |e| {
-                    if let (Some((left, width)), Some(t)) = (rect(), e.touches().first()) {
+                onpointermove: move |e: PointerEvent| {
+                    if !*dragging.peek() {
+                        return;
+                    }
+                    if let Some((left, width)) = *rect.peek() {
                         on_change
-                            .call(
-                                slider_value(t.client_coordinates().x, left, width, min, max, step),
-                            );
+                            .call(slider_value(e.client_coordinates().x, left, width, min, max, step));
                     }
                 },
-                ontouchend: move |_| dragging.set(false),
-                ontouchcancel: move |_| dragging.set(false),
+                onpointerup: move |_| dragging.set(false),
+                onpointercancel: move |_| dragging.set(false),
                 div {
                     onmounted: move |e| track.set(Some(e.data())),
                     class: "relative flex-1 h-[5px] rounded-full bg-muted-foreground/25",
@@ -97,7 +137,26 @@ pub fn Slider(
                         class: "absolute inset-y-0 left-0 rounded-full bg-primary",
                         style: "width: {pct}%;",
                     }
-                    div { class: thumb_class, style: "left: {pct}%;" }
+                    div {
+                        class: thumb_class,
+                        style: "left: {pct}%;",
+                        role: "slider",
+                        tabindex: "0",
+                        "aria-label": "{label}",
+                        "aria-valuemin": "{min}",
+                        "aria-valuemax": "{max}",
+                        "aria-valuenow": "{value}",
+                        "aria-valuetext": "{aria_valuetext}",
+                        "aria-orientation": "horizontal",
+                        onkeydown: move |e: KeyboardEvent| {
+                            if let Some(next) = slider_key_value(&e.key(), value, min, max, step) {
+                                e.prevent_default();
+                                if next != value {
+                                    on_change.call(next);
+                                }
+                            }
+                        },
+                    }
                 }
             }
         }
@@ -120,5 +179,60 @@ mod tests {
     fn degenerate_track_returns_min() {
         assert_eq!(slider_value(10.0, 0.0, 0.0, 5.0, 50.0, 1.0), 5.0);
         assert_eq!(slider_value(10.0, 0.0, 100.0, 5.0, 50.0, 0.0), 5.0);
+    }
+
+    #[test]
+    fn arrow_keys_step_and_clamp() {
+        assert_eq!(
+            slider_key_value(&Key::ArrowRight, 5.0, 0.0, 10.0, 1.0),
+            Some(6.0)
+        );
+        assert_eq!(
+            slider_key_value(&Key::ArrowUp, 5.0, 0.0, 10.0, 1.0),
+            Some(6.0)
+        );
+        assert_eq!(
+            slider_key_value(&Key::ArrowLeft, 5.0, 0.0, 10.0, 1.0),
+            Some(4.0)
+        );
+        assert_eq!(
+            slider_key_value(&Key::ArrowDown, 0.0, 0.0, 10.0, 1.0),
+            Some(0.0)
+        );
+        assert_eq!(
+            slider_key_value(&Key::ArrowRight, 10.0, 0.0, 10.0, 1.0),
+            Some(10.0)
+        );
+        assert_eq!(
+            slider_key_value(&Key::ArrowRight, 1.0, 0.0, 10.0, 0.5),
+            Some(1.5)
+        );
+    }
+
+    #[test]
+    fn home_end_and_page_keys() {
+        assert_eq!(slider_key_value(&Key::Home, 5.0, 1.0, 10.0, 1.0), Some(1.0));
+        assert_eq!(slider_key_value(&Key::End, 5.0, 1.0, 10.0, 1.0), Some(10.0));
+        assert_eq!(
+            slider_key_value(&Key::PageUp, 5.0, 0.0, 100.0, 1.0),
+            Some(15.0)
+        );
+        assert_eq!(
+            slider_key_value(&Key::PageDown, 5.0, 0.0, 100.0, 1.0),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn unhandled_keys_and_degenerate_ranges_yield_none() {
+        assert_eq!(slider_key_value(&Key::Enter, 5.0, 0.0, 10.0, 1.0), None);
+        assert_eq!(
+            slider_key_value(&Key::ArrowRight, 5.0, 0.0, 10.0, 0.0),
+            None
+        );
+        assert_eq!(
+            slider_key_value(&Key::ArrowRight, 5.0, 10.0, 0.0, 1.0),
+            None
+        );
     }
 }

@@ -1,12 +1,12 @@
 use super::Date as WireDate;
-use crate::{InputBase, Modal, ModalSize};
+use crate::InputBase;
 use dioxus::prelude::*;
 use ds_utils::format::merge;
 use time::Date;
 
 use super::panel::{CalendarPanel, SelectionState};
 use super::shared::{format_display_date, *};
-use crate::calendar::{CalendarState, format_header_date, parse_date, today};
+use crate::calendar::{format_header_date, parse_date, today, use_calendar_state};
 use crate::field_name::Field;
 use crate::form::use_field_binding;
 use crate::form::view::FormFieldFrame;
@@ -31,9 +31,19 @@ pub fn DatePickerBase(
     /// Latest selectable date.
     #[props(default)]
     max: Option<Signal<WireDate>>,
-    /// Shared open state (lets a wrapper observe/control the popover).
+    /// Shared open state (lets a wrapper observe/control the dialog). Setting
+    /// it to `true` externally opens the dialog with fresh staging state.
     #[props(default)]
     is_open: Option<Signal<bool>>,
+    /// DOM id for the trigger (targeted by the field label).
+    #[props(default)]
+    id: Option<String>,
+    /// `aria-invalid` for the trigger.
+    #[props(default)]
+    aria_invalid: Option<String>,
+    /// `aria-describedby` for the trigger (the field's error element).
+    #[props(default)]
+    aria_describedby: Option<String>,
 ) -> Element {
     let default_is_open = use_signal(|| false);
     let mut is_open_sig = is_open.unwrap_or(default_is_open);
@@ -48,24 +58,12 @@ pub fn DatePickerBase(
     // read view instead of mirroring it into a shadow signal via `use_effect`.
     let selection = SelectionState::Single(selected_date.into());
 
-    let cal_state = CalendarState::new((*selected_date.peek()).unwrap_or_else(today));
+    let cal_state = use_calendar_state((*selected_date.peek()).unwrap_or_else(today));
 
     let min_date = use_memo(move || min.map(|s| s().into_inner()));
     let max_date = use_memo(move || max.map(|s| s().into_inner()));
 
-    let is_date_disabled = move |date: Date| -> bool {
-        if let Some(mn) = min_date()
-            && date < mn
-        {
-            return true;
-        }
-        if let Some(mx) = max_date()
-            && date > mx
-        {
-            return true;
-        }
-        false
-    };
+    let is_date_disabled = move |date: Date| out_of_range(date, min_date(), max_date());
 
     let display_value = use_memo(move || {
         let val = value().unwrap_or_default();
@@ -78,6 +76,13 @@ pub fn DatePickerBase(
         }
     });
 
+    let reset = use_callback(move |_: ()| {
+        let nav_to = (*selected_date.peek()).unwrap_or_else(today);
+        cal_state.navigate_to(&nav_to);
+        input_mode.set(false);
+    });
+    let open = use_open_reset(is_open_sig, reset);
+
     let trigger_class = merge(&[TRIGGER_CLASS, &class]);
     let is_open_val = is_open_sig();
     let header_date = selected_date()
@@ -86,73 +91,61 @@ pub fn DatePickerBase(
 
     rsx! {
         div { "data-name": "DatePicker", class: "relative w-full",
-            button {
-                r#type: "button",
-                class: "{trigger_class}",
+            PickerTrigger {
+                class: trigger_class,
+                display: display_value(),
                 disabled: disabled(),
-                "data-state": if is_open_val { "open" } else { "closed" },
-                onclick: move |ev| {
-                    ev.stop_propagation();
-                    if disabled() { return; }
-                    let nav_to = (*selected_date.peek()).unwrap_or_else(today);
-                    cal_state.navigate_to(&nav_to);
-                    input_mode.set(false);
-                    is_open_sig.set(true);
-                },
-                span { class: "truncate", "{display_or_nbsp(display_value())}" }
+                is_open: is_open_val,
+                id,
+                aria_invalid,
+                aria_describedby,
+                on_open: move |_| open.call(()),
                 CalendarIcon {}
             }
 
             if is_open_val {
-                Modal {
-                    on_close: move || is_open_sig.set(false),
-                    headerless: true,
-                    unpadded: true,
-                    size: ModalSize::Sm,
-                    PickerHeader { title: "Select date",
-                        div { class: HEADER_DATE, "{header_date}" }
-                        EditToggleButton {
-                            input_mode: input_mode,
-                            on_click: move |_| {
-                                let entering = !*input_mode.peek();
-                                if entering {
-                                    let val = (*selected_date.peek())
-                                        .as_ref()
-                                        .map(|d| WireDate::from(*d).to_string())
-                                        .unwrap_or_default();
-                                    input_value.set(val);
-                                } else if let Some(d) = parse_date(&input_value.peek())
-                                    && !is_date_disabled(d) {
-                                        let formatted = WireDate::from(d).to_string();
-                                        on_value_change.call(formatted);
-                                        cal_state.navigate_to(&d);
-                                    }
-                                input_mode.set(entering);
-                            },
+                PickerDialog {
+                    title: "Select date",
+                    header: header_date,
+                    on_close: move |_| is_open_sig.set(false),
+                    input_mode: Some(input_mode.into()),
+                    on_edit_toggle: move |_| {
+                        let entering = !*input_mode.peek();
+                        if entering {
+                            let val = (*selected_date.peek())
+                                .as_ref()
+                                .map(|d| WireDate::from(*d).to_string())
+                                .unwrap_or_default();
+                            input_value.set(val);
+                        } else if let Some(d) = parse_date(&input_value.peek())
+                            && !is_date_disabled(d)
+                        {
+                            let formatted = WireDate::from(d).to_string();
+                            on_value_change.call(formatted);
+                            cal_state.navigate_to(&d);
                         }
-                    }
-                    div { class: "p-4",
-                        if input_mode() {
-                            div { class: "py-4",
-                                label { class: "block text-xs font-medium text-muted-foreground mb-2", "Date" }
-                                InputBase {
-                                    placeholder: "YYYY-MM-DD".to_string(),
-                                    value: input_value_read,
-                                    on_value_change: move |v: String| input_value.set(v),
-                                }
+                        input_mode.set(entering);
+                    },
+                    if input_mode() {
+                        div { class: "py-4",
+                            label { class: "block text-xs font-medium text-muted-foreground mb-2", "Date" }
+                            InputBase {
+                                placeholder: "YYYY-MM-DD".to_string(),
+                                value: input_value_read,
+                                on_value_change: move |v: String| input_value.set(v),
                             }
-                        } else {
-                            CalendarPanel {
-                                state: cal_state,
-                                selection: selection,
-                                on_day_click: move |date: Date| {
-                                    let formatted = WireDate::from(date).to_string();
-                                    on_value_change.call(formatted);
-                                    is_open_sig.set(false);
-                                },
-                                min_date: min_date(),
-                                max_date: max_date(),
-                            }
+                        }
+                    } else {
+                        CalendarPanel {
+                            state: cal_state,
+                            selection: selection,
+                            on_day_click: move |date: Date| {
+                                let formatted = WireDate::from(date).to_string();
+                                on_value_change.call(formatted);
+                                is_open_sig.set(false);
+                            },
+                            min_date: min_date(),
+                            max_date: max_date(),
                         }
                     }
                 }
@@ -213,12 +206,8 @@ pub(crate) fn DatePickerControl(
     let form_disabled = binding.disabled;
     let is_disabled: ReadSignal<bool> = use_memo(move || disabled() || form_disabled()).into();
 
-    let has_min = min.is_some();
-    let has_max = max.is_some();
-    let min_sig = use_signal(|| min.unwrap_or_default());
-    let max_sig = use_signal(|| max.unwrap_or_default());
-    let min_opt = has_min.then_some(min_sig);
-    let max_opt = has_max.then_some(max_sig);
+    let min_opt = use_optional_signal(min);
+    let max_opt = use_optional_signal(max);
 
     rsx! {
         DatePickerBase {
@@ -228,6 +217,9 @@ pub(crate) fn DatePickerControl(
             is_open: open,
             min: min_opt,
             max: max_opt,
+            id: binding.id.clone(),
+            aria_invalid: binding.aria_invalid(),
+            aria_describedby: binding.aria_describedby_when_invalid(),
         }
     }
 }

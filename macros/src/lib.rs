@@ -45,21 +45,35 @@ pub fn on_web(input: TokenStream) -> TokenStream {
     cfg_feature::cfg_feature_items(input, "web")
 }
 
-/// Generates typed field constants for each struct field. See `libs/macros/README.md` for usage.
+/// Generates typed field constants for each struct field. See `macros/README.md` for usage.
 #[cfg(feature = "form-fields")]
 #[proc_macro_derive(FormFields, attributes(field))]
 pub fn derive_form_fields(input: TokenStream) -> TokenStream {
     form_fields::derive_form_fields(input)
 }
 
-/// Generates `const OPTIONS: &[(&str, &str)]` for unit enums. See `libs/macros/README.md` for usage.
+/// Generates `const OPTIONS: &[(&str, &str)]` (value, label) for enums. See `macros/README.md`
+/// for usage.
+///
+/// Values follow `#[serde(rename_all)]` / `#[serde(rename)]`; labels use
+/// `#[strum(to_string = "..")]` or the variant name as `Title Case`.
+///
+/// Enums with data-carrying variants are accepted: they get `OPTIONS` and the `FormSchema`
+/// impl, but no `FormValue` impl (a value cannot round-trip through a plain string). At least
+/// one unit variant is required — it is the default/first option — otherwise the derive is a
+/// compile error.
 #[cfg(feature = "form-options")]
 #[proc_macro_derive(FormOptions, attributes(strum))]
 pub fn derive_form_options(input: TokenStream) -> TokenStream {
     form_options::derive_form_options(input)
 }
 
-/// Derives step metadata for multi-step form enums. See `libs/macros/README.md` for usage.
+/// Derives step metadata (`ALL`, `COUNT`, `TITLES`, `DESCRIPTIONS`) for unit enums used as
+/// wizard steps. See `macros/README.md` for usage.
+///
+/// `#[step(title = "..", description = "..")]` overrides the defaults (variant name as
+/// `Title Case`, empty description). Any other key, a non-string value, or a non-unit variant
+/// is a compile error.
 #[cfg(feature = "steps")]
 #[proc_macro_derive(Steps, attributes(step))]
 pub fn derive_steps(input: TokenStream) -> TokenStream {

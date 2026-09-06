@@ -198,6 +198,8 @@ pub fn Icon(
                 view_box: "0 0 24 24",
                 fill: "currentColor",
                 stroke: "none",
+                "aria-hidden": "true",
+                "focusable": "false",
                 class: "{class}",
                 style: "{style}",
                 path { d: "{d}" }
@@ -212,6 +214,8 @@ pub fn Icon(
                 xmlns: "http://www.w3.org/2000/svg",
                 fill: "none",
                 view_box: "0 0 24 24",
+                "aria-hidden": "true",
+                "focusable": "false",
                 style: "{style}",
                 circle {
                     class: "opacity-25",
@@ -237,6 +241,8 @@ pub fn Icon(
                 stroke_width: "{sw}",
                 stroke_linecap: "round",
                 stroke_linejoin: "round",
+                "aria-hidden": "true",
+                "focusable": "false",
                 class: "{class}",
                 style: "{style}",
                 {icon_paths(name)}

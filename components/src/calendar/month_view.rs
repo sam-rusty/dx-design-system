@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 use time::Date;
 
-use super::{CalendarDay, WEEKDAY_LABELS, calendar_grid};
+use super::{CalendarDay, WEEKDAY_LABELS, calendar_grid, month_name};
 use crate::button::{Button, ButtonSize, ButtonVariant};
 
 const MAX_VISIBLE_EVENTS: usize = 3;
@@ -15,10 +15,20 @@ pub struct CalendarEvent {
     pub muted: bool,
 }
 
+/// Whether a keyboard event on a `role="button"` element should activate it.
+pub(crate) fn is_activation_key(key: &Key) -> bool {
+    match key {
+        Key::Enter => true,
+        Key::Character(c) => c == " ",
+        _ => false,
+    }
+}
+
 /// A presentational 6×7 month calendar grid.
 ///
 /// The parent owns `year` and `month` signals — this component renders only.
 /// Navigation chrome, month-switching controls, etc. are the parent's responsibility.
+/// Day cells are keyboard-reachable (`role="button"`, Enter/Space activate).
 #[component]
 pub fn MonthView(
     year: ReadSignal<i32>,
@@ -28,6 +38,15 @@ pub fn MonthView(
     on_event_click: EventHandler<String>,
 ) -> Element {
     let days = use_memo(move || calendar_grid(year(), month()));
+    // Bucket once per render instead of filtering the whole list per cell.
+    let by_date = use_memo(move || {
+        let mut map: std::collections::HashMap<Date, Vec<CalendarEvent>> =
+            std::collections::HashMap::new();
+        for e in events() {
+            map.entry(e.date).or_default().push(e);
+        }
+        map
+    });
 
     rsx! {
         div { class: "flex flex-col w-full border border-border rounded-lg overflow-hidden bg-background",
@@ -45,10 +64,7 @@ pub fn MonthView(
                     DayCell {
                         key: "{i}",
                         day,
-                        events: events()
-                            .into_iter()
-                            .filter(|e| e.date == day.date)
-                            .collect::<Vec<_>>(),
+                        events: by_date.read().get(&day.date).cloned().unwrap_or_default(),
                         on_day_click,
                         on_event_click,
                     }
@@ -76,6 +92,12 @@ fn DayCell(
 
     let overflow = events.len().saturating_sub(MAX_VISIBLE_EVENTS);
     let visible: Vec<CalendarEvent> = events.into_iter().take(MAX_VISIBLE_EVENTS).collect();
+    let aria_label = format!(
+        "{} {}, {}",
+        month_name(date.month() as u8 as u32),
+        date.day(),
+        date.year()
+    );
 
     rsx! {
         div {
@@ -83,8 +105,22 @@ fn DayCell(
                     hover:bg-accent/30 transition-colors cursor-pointer select-none",
             onclick: move |_| on_day_click.call(date),
 
-            // Day number
-            span { class: "self-start px-1 {day_class}", "{day_num}" }
+            // Day number is the keyboard/AT target for the day itself: the cell
+            // also contains event chip buttons, so the cell must not be a
+            // `role=button` (nested interactive content).
+            span {
+                class: "self-start px-1 {day_class}",
+                role: "button",
+                tabindex: "0",
+                "aria-label": aria_label,
+                onkeydown: move |e| {
+                    if is_activation_key(&e.key()) {
+                        e.prevent_default();
+                        on_day_click.call(date);
+                    }
+                },
+                "{day_num}"
+            }
 
             // Event chips (up to MAX_VISIBLE_EVENTS)
             for event in visible {

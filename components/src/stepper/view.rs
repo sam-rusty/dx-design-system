@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -15,6 +16,7 @@ use crate::form::dynamic::{DynamicForm, Form, FormContext, FormData, FormProvide
 use crate::icon::{Icon, IconName};
 use crate::layout::{FlexGridCols, Grid};
 use crate::separator::Separator;
+use crate::step_dots::{dot_active, dot_inactive};
 use crate::{Text, TextSize, TextVariant, Title, TitleSize};
 
 const BTN_BASE: &str = "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-semibold h-10 px-5 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 cursor-pointer active:scale-[0.97] antialiased";
@@ -24,6 +26,11 @@ const BTN_PRIMARY: &str = "bg-primary text-primary-foreground hover:opacity-90";
 const BTN_OUTLINE: &str = "border border-border bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground";
 
 const BTN_GHOST: &str = "text-muted-foreground hover:text-foreground hover:bg-accent";
+
+/// `StepProgressVariant::Dots` shares its dot geometry/colours with `StepDots`; only the
+/// transition differs (the progress bar animates the pill between steps).
+const DOT_ACTIVE_ANIMATED: &str = concat!(dot_active!(), " transition-all duration-300");
+const DOT_INACTIVE_ANIMATED: &str = concat!(dot_inactive!(), " transition-all duration-300");
 
 /// Step circle class as a single `&'static str` per `(state, clickable)` —
 /// avoids the per-step, per-render `format!` the progress bar used to do.
@@ -73,6 +80,55 @@ fn validate_step_fields<T: FormData>(form: &DynamicForm<T>, fields: &[Field]) ->
     form.validate_fields(fields)
 }
 
+/// `StepNav` primary action: validate the current step, then advance — or, on the last step,
+/// submit the whole form.
+pub(crate) fn submit_or_next<T: FormData>(
+    step_ctx: AnyStepCtx,
+    form: DynamicForm<T>,
+    before_next: Option<Callback<(), bool>>,
+    on_submit: EventHandler<T>,
+) {
+    if let Some(guard) = before_next
+        && !guard.call(())
+    {
+        return;
+    }
+
+    let fields = step_ctx.current_fields();
+    if !validate_step_fields(&form, &fields) {
+        return;
+    }
+
+    if step_ctx.is_last() {
+        // Mark only once validation has passed: `MultiStepForm` drops the persisted draft as soon
+        // as `submitted` flips, and consumers gate on `is_submitted()`.
+        form.submit(move |data| {
+            step_ctx.mark_submitted();
+            on_submit.call(data);
+        });
+    } else {
+        step_ctx.next();
+    }
+}
+
+/// `StepNav` skip action: advance without validating — or, on the last step, submit the
+/// current values as they are.
+pub(crate) fn skip_or_next<T: FormData>(
+    step_ctx: AnyStepCtx,
+    form: DynamicForm<T>,
+    on_submit: EventHandler<T>,
+) {
+    if step_ctx.is_last() {
+        // Submit with current values (skip validation); mark only when data was produced.
+        if let Some(data) = form.get_data() {
+            step_ctx.mark_submitted();
+            on_submit.call(data);
+        }
+    } else {
+        step_ctx.next();
+    }
+}
+
 /// Provides [`StepFieldRegistry`] for [`Stepper`] (no `FormProvider` / [`FormContext`]).
 #[component]
 fn StepFieldScope(registry: Signal<Vec<Field>>, children: Element) -> Element {
@@ -108,12 +164,13 @@ pub fn Stepper<S: StepDefinition>(
     #[props(default)] initial: Option<S>,
     children: Element,
 ) -> Element {
-    // use_hook: InternalStepCtx + noop clear_form only once per instance (ROOT CopyValues).
-    // use_any_step_ctx runs at component level so use_memo is not nested inside this hook.
+    // use_hook: InternalStepCtx + noop clear_form only once per instance, owned by this scope
+    // (see `InternalStepCtx::owner`). use_any_step_ctx runs at component level so use_memo is
+    // not nested inside this hook.
     let (internal, clear_form_fn) = use_hook(|| {
         let step = initial.unwrap_or_else(S::initial);
         let ctx = InternalStepCtx::<S>::new(step);
-        let clear_cv = CopyValue::new_in_scope(Box::new(|| {}) as Box<dyn Fn()>, ScopeId::ROOT);
+        let clear_cv = CopyValue::new_in_scope(Box::new(|| {}) as Box<dyn Fn()>, ctx.owner);
         (ctx, clear_cv)
     });
     let any = use_any_step_ctx(internal, None, clear_form_fn);
@@ -141,19 +198,21 @@ pub fn Step<S: StepDefinition>(
     let static_fields: Vec<Field> = fields.unwrap_or_else(|| id.fields().unwrap_or_default());
     let has_override = !static_fields.is_empty();
 
-    // Field lists are read from StepNav, MultiStepForm effects, and ROOT memos in `use_any_step_ctx`.
-    // They must live in ROOT like `InternalStepCtx` signals — not in this `Step` scope — or sibling
-    // components read a signal owned by a non-ancestor scope and navigation/validation breaks.
-    // Stable per `Step` instance: new ROOT signals each render would desync `register_ordered` (early
-    // return keeps the first `InternalStepInfo`) from `StepFieldRegistry` passed to children.
+    // Field lists are read from StepNav, MultiStepForm effects, and the memos in `use_any_step_ctx`.
+    // They must live in the provider scope like the `InternalStepCtx` signals — not in this `Step`
+    // scope — or sibling components read a signal owned by a non-ancestor scope and
+    // navigation/validation breaks. Stable per `Step` instance: new signals each render would
+    // desync `register_ordered` (early return keeps the first `InternalStepInfo`) from the
+    // `StepFieldRegistry` passed to children.
+    let owner = ctx.owner;
     let (fields_signal, registry_signal) = use_hook(|| {
         if has_override {
             (
-                Signal::new_in_scope(static_fields.clone(), ScopeId::ROOT),
-                Signal::new_in_scope(Vec::new(), ScopeId::ROOT),
+                Signal::new_in_scope(static_fields.clone(), owner),
+                Signal::new_in_scope(Vec::new(), owner),
             )
         } else {
-            let s = Signal::new_in_scope(Vec::new(), ScopeId::ROOT);
+            let s = Signal::new_in_scope(Vec::new(), owner);
             (s, s)
         }
     });
@@ -278,6 +337,7 @@ pub fn SummarySection<S: StepDefinition>(
                     button {
                         r#type: "button",
                         class: "text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer transition-colors",
+                        "aria-label": "Edit {section_title}",
                         onclick: move |_| nav.go_to(step),
                         "Edit"
                     }
@@ -306,11 +366,18 @@ pub fn ClearDraftButton(
         class
     };
 
+    // A real button (focusable, keyboard-activatable). The class list is exactly what the
+    // previous `Text { variant: Secondary, size: Small }` wrapper produced, so styling is unchanged.
+    let class = merge(&[
+        "tracking-tight text-foreground antialiased text-sm text-muted-foreground",
+        &btn_class,
+    ]);
+
     rsx! {
-        Text {
-            variant: TextVariant::Secondary,
-            size: TextSize::Small,
-            class: "{btn_class}",
+        button {
+            r#type: "button",
+            "data-name": "ClearDraftButton",
+            class: "{class}",
             onclick: move |_| {
                 ctx.clear_draft();
                 if let Some(cb) = on_clear {
@@ -326,10 +393,28 @@ pub fn ClearDraftButton(
 pub fn StepSuccess(children: Element) -> Element {
     let ctx = use_context::<AnyStepCtx>();
 
+    // Move focus to the panel when the wizard completes so assistive tech announces the
+    // result instead of staying on the (now hidden) submit button.
+    let mut mounted = use_signal(|| None::<Rc<MountedData>>);
+    let completed = ctx.completed;
+    use_effect(move || {
+        if !*completed.read() {
+            return;
+        }
+        let Some(el) = mounted.peek().clone() else {
+            return;
+        };
+        spawn(async move {
+            let _ = el.set_focus(true).await;
+        });
+    });
+
     rsx! {
         div {
             "data-name": "StepSuccess",
+            tabindex: "-1",
             hidden: if !*ctx.completed.read() { true },
+            onmounted: move |e| mounted.set(Some(e.data())),
             {children}
         }
     }
@@ -367,7 +452,7 @@ where
         let clear_fn: Box<dyn Fn()> = Box::new(move || {
             form_reset.reset();
         });
-        let clear_cv = CopyValue::new_in_scope(clear_fn, ScopeId::ROOT);
+        let clear_cv = CopyValue::new_in_scope(clear_fn, ctx.owner);
         (ctx, clear_cv)
     });
     let any_ctx = use_any_step_ctx(internal, persist_key.clone(), clear_form_fn);
@@ -385,12 +470,14 @@ where
             .find(|si| si.id == cur)
             .map(|si| si.fields.read().clone())
             .unwrap_or_default();
-        form_clone.required_fields.set(
-            fields_vec
-                .iter()
-                .map(|f| (f.name.to_string(), f.required))
-                .collect(),
-        );
+        let next: HashMap<String, bool> = fields_vec
+            .iter()
+            .map(|f| (f.name.to_string(), f.required))
+            .collect();
+        // Compare first: every input subscribed to `required_fields` re-renders on a write.
+        if *form_clone.required_fields.peek() != next {
+            form_clone.required_fields.set(next);
+        }
     });
 
     let mut restored_ready = use_signal(|| persist_key.is_none());
@@ -438,10 +525,16 @@ where
             return;
         }
         let values = form_persist.values_signal.read().clone();
+        // An empty map is what `clear_draft` (and a fresh mount) leaves behind: nothing worth
+        // restoring, and writing it would re-create the entries `clear_draft` just removed.
+        if values.is_empty() {
+            return;
+        }
         save_persisted(&key, &values);
     });
 
     let persist_key_for_step = Rc::clone(&persist_key_cell);
+    let form_persist_step = form;
     use_effect(move || {
         let pk = persist_key_for_step.borrow().clone();
         let Some(key) = pk else {
@@ -451,6 +544,10 @@ where
             return;
         }
         let idx = any_ctx.current_index();
+        // Same gate as the value draft (subscribes to the map so `:step` follows the first edit).
+        if form_persist_step.values_signal.read().is_empty() {
+            return;
+        }
         save_persisted_step(&key, idx);
     });
 
@@ -466,18 +563,26 @@ where
         }
     });
 
+    // `on_step_change` reports navigation only. The first observed index — after the steps have
+    // registered and any persisted draft has been restored — seeds `prev_index` silently, so
+    // `initial: Some(..)` and a restored `:step` do not fire a spurious `(0, initial)`.
     let on_step_for_effect = Rc::clone(&on_step_change_cell);
-    let mut prev_index = use_signal(|| 0usize);
+    let mut prev_index = use_signal(|| None::<usize>);
     use_effect(move || {
-        let cb = *on_step_for_effect.borrow();
-        let Some(cb) = cb else {
-            return;
-        };
         let cur = any_ctx.current_index();
+        if !restored_ready() {
+            return;
+        }
         let prev = *prev_index.peek();
-        if cur != prev {
-            prev_index.set(cur);
-            cb.call((prev, cur));
+        match prev {
+            Some(prev) if prev != cur => {
+                prev_index.set(Some(cur));
+                if let Some(cb) = *on_step_for_effect.borrow() {
+                    cb.call((prev, cur));
+                }
+            }
+            Some(_) => {}
+            None => prev_index.set(Some(cur)),
         }
     });
 
@@ -552,17 +657,7 @@ where
                     button {
                         r#type: "button",
                         class: "{BTN_BASE} {BTN_GHOST}",
-                        onclick: move |_| {
-                            if step_ctx.is_last() {
-                                step_ctx.mark_submitted();
-                                // Submit with current values (skip validation)
-                                if let Some(data) = form_next.get_data() {
-                                    on_submit.call(data);
-                                }
-                            } else {
-                                step_ctx.next();
-                            }
-                        },
+                        onclick: move |_| skip_or_next(step_ctx, form_next, on_submit),
                         "{skip_label}"
                     }
                 }
@@ -570,25 +665,7 @@ where
                 button {
                     r#type: "button",
                     class: "{BTN_BASE} {BTN_PRIMARY}",
-                    onclick: move |_| {
-                        if let Some(guard) = before_next
-                            && !guard.call(())
-                        {
-                            return;
-                        }
-
-                        let fields = step_ctx.current_fields();
-                        if !validate_step_fields(&form, &fields) {
-                            return;
-                        }
-
-                        if step_ctx.is_last() {
-                            step_ctx.mark_submitted();
-                            form.submit(move |data| on_submit.call(data));
-                        } else {
-                            step_ctx.next();
-                        }
-                    },
+                    onclick: move |_| submit_or_next(step_ctx, form, before_next, on_submit),
                     "{primary_label()}"
                 }
             }
@@ -623,7 +700,8 @@ pub fn StepProgress(
     let mut item_refs = use_signal(Vec::<Option<Rc<MountedData>>>::new);
     use_effect(move || {
         let idx = ctx.current_index();
-        if let Some(Some(el)) = item_refs.read().get(idx) {
+        // Depend on the index only: each `onmounted` write would otherwise re-run this effect.
+        if let Some(Some(el)) = item_refs.peek().get(idx) {
             let el = el.clone();
             spawn(async move {
                 let _ = el
@@ -660,58 +738,59 @@ pub fn StepProgress(
             rsx! {
                 nav {
                     "data-name": "StepProgress",
-                    class: "{container_class}",
                     hidden: if *ctx.completed.read() { true },
-                    role: "list",
                     "aria-label": "Progress",
                     "data-current-step": "{current_step_str()}",
-                    for (i, (_, title)) in steps_vec.into_iter().enumerate() {
-                        {
-                            let state = ctx.step_state(i);
-                            let is_last = i == len - 1;
-                            let clickable = ctx.is_visited_index(i) || state == StepState::Current;
-                            let is_current = state == StepState::Current;
-                            let circle_class = step_circle_class(state, clickable);
-                            let label_class = match state {
-                                StepState::Upcoming => {
-                                    "text-sm font-medium whitespace-nowrap text-muted-foreground max-sm:max-w-[5.5rem] max-sm:truncate"
-                                }
-                                _ => {
-                                    "text-sm font-medium whitespace-nowrap text-foreground max-sm:max-w-[5.5rem] max-sm:truncate"
-                                }
-                            };
-                            rsx! {
-                                div {
-                                    role: "listitem",
-                                    class: "flex flex-row flex-nowrap items-center shrink-0",
-                                    "aria-current": if is_current { "step" },
-                                    onmounted: move |e| {
-                                        item_refs.with_mut(|v| {
-                                            if v.len() != len {
-                                                v.resize(len, None);
-                                            }
-                                            v[i] = Some(e.data());
-                                        });
-                                    },
-                                    div { class: "flex flex-row flex-nowrap items-center gap-2 min-w-0",
-                                        button {
-                                            r#type: "button",
-                                            disabled: !clickable,
-                                            class: circle_class,
-                                            onclick: move |_| {
-                                                if clickable { ctx.go_to_index(i); }
-                                            },
-                                            if state == StepState::Completed {
-                                                Icon { name: IconName::Check, class: "size-3.5", stroke_width: 2.5 }
-                                            } else {
-                                                span { "{i + 1}" }
-                                            }
-                                        }
-                                        span { class: label_class, "{title}" }
+                    ol { class: "{container_class}", role: "list",
+                        for (i, (_, title)) in steps_vec.into_iter().enumerate() {
+                            {
+                                let state = ctx.step_state(i);
+                                let is_last = i == len - 1;
+                                let clickable = ctx.is_visited_index(i) || state == StepState::Current;
+                                let is_current = state == StepState::Current;
+                                let circle_class = step_circle_class(state, clickable);
+                                let label_class = match state {
+                                    StepState::Upcoming => {
+                                        "text-sm font-medium whitespace-nowrap text-muted-foreground max-sm:max-w-[5.5rem] max-sm:truncate"
                                     }
-                                    if !is_last {
-                                        div { class: "mx-2 sm:mx-3 flex h-8 shrink-0 items-center",
-                                            div { class: "h-px w-6 sm:w-12 bg-border" }
+                                    _ => {
+                                        "text-sm font-medium whitespace-nowrap text-foreground max-sm:max-w-[5.5rem] max-sm:truncate"
+                                    }
+                                };
+                                rsx! {
+                                    li {
+                                        class: "flex flex-row flex-nowrap items-center shrink-0",
+                                        "aria-current": if is_current { "step" },
+                                        onmounted: move |e| {
+                                            item_refs.with_mut(|v| {
+                                                if v.len() != len {
+                                                    v.resize(len, None);
+                                                }
+                                                v[i] = Some(e.data());
+                                            });
+                                        },
+                                        div { class: "flex flex-row flex-nowrap items-center gap-2 min-w-0",
+                                            button {
+                                                r#type: "button",
+                                                disabled: !clickable,
+                                                class: circle_class,
+                                                "aria-current": if is_current { "step" },
+                                                "aria-label": "Step {i + 1}: {title}",
+                                                onclick: move |_| {
+                                                    if clickable { ctx.go_to_index(i); }
+                                                },
+                                                if state == StepState::Completed {
+                                                    Icon { name: IconName::Check, class: "size-3.5", stroke_width: 2.5 }
+                                                } else {
+                                                    span { "{i + 1}" }
+                                                }
+                                            }
+                                            span { class: label_class, "{title}" }
+                                        }
+                                        if !is_last {
+                                            div { class: "mx-2 sm:mx-3 flex h-8 shrink-0 items-center",
+                                                div { class: "h-px w-6 sm:w-12 bg-border" }
+                                            }
                                         }
                                     }
                                 }
@@ -728,57 +807,59 @@ pub fn StepProgress(
             rsx! {
                 nav {
                     "data-name": "StepProgress",
-                    class: "{container_class}",
                     hidden: if *ctx.completed.read() { true },
-                    role: "list",
                     "aria-label": "Progress",
                     "data-current-step": "{current_step_str()}",
-                    for (i, (_, title)) in steps_vec.into_iter().enumerate() {
-                        {
-                            let state = ctx.step_state(i);
-                            let is_last = i == len - 1;
-                            let clickable = ctx.is_visited_index(i) || state == StepState::Current;
-                            let is_current = state == StepState::Current;
-                            let circle_class = step_circle_class(state, clickable);
-                            let connector_class = if state == StepState::Completed {
-                                "w-[1px] flex-1 min-h-6 my-1 bg-primary"
-                            } else {
-                                "w-[1px] flex-1 min-h-6 my-1 bg-border"
-                            };
-                            let label_class = step_vlabel_class(state, clickable);
-                            let pb_class = if is_last { "pb-0 pt-1.5" } else { "pb-4 pt-1.5" };
-                            rsx! {
-                                div {
-                                    role: "listitem",
-                                    class: "flex items-stretch gap-3",
-                                    "aria-current": if is_current { "step" },
-                                    div { class: "flex flex-col items-center",
-                                        button {
-                                            r#type: "button",
-                                            disabled: !clickable,
-                                            class: circle_class,
-                                            onclick: move |_| {
-                                                if clickable { ctx.go_to_index(i); }
-                                            },
-                                            if state == StepState::Completed {
-                                                Icon { name: IconName::Check, class: "size-3.5", stroke_width: 2.5 }
-                                            } else {
-                                                span { "{i + 1}" }
+                    ol { class: "{container_class}", role: "list",
+                        for (i, (_, title)) in steps_vec.into_iter().enumerate() {
+                            {
+                                let state = ctx.step_state(i);
+                                let is_last = i == len - 1;
+                                let clickable = ctx.is_visited_index(i) || state == StepState::Current;
+                                let is_current = state == StepState::Current;
+                                let circle_class = step_circle_class(state, clickable);
+                                let connector_class = if state == StepState::Completed {
+                                    "w-[1px] flex-1 min-h-6 my-1 bg-primary"
+                                } else {
+                                    "w-[1px] flex-1 min-h-6 my-1 bg-border"
+                                };
+                                let label_class = step_vlabel_class(state, clickable);
+                                let pb_class = if is_last { "pb-0 pt-1.5" } else { "pb-4 pt-1.5" };
+                                rsx! {
+                                    li {
+                                        class: "flex items-stretch gap-3",
+                                        "aria-current": if is_current { "step" },
+                                        div { class: "flex flex-col items-center",
+                                            button {
+                                                r#type: "button",
+                                                disabled: !clickable,
+                                                class: circle_class,
+                                                "aria-current": if is_current { "step" },
+                                                "aria-label": "Step {i + 1}: {title}",
+                                                onclick: move |_| {
+                                                    if clickable { ctx.go_to_index(i); }
+                                                },
+                                                if state == StepState::Completed {
+                                                    Icon { name: IconName::Check, class: "size-3.5", stroke_width: 2.5 }
+                                                } else {
+                                                    span { "{i + 1}" }
+                                                }
+                                            }
+                                            if !is_last {
+                                                div { class: connector_class }
                                             }
                                         }
-                                        if !is_last {
-                                            div { class: connector_class }
-                                        }
-                                    }
-                                    div { class: pb_class,
-                                        button {
-                                            r#type: "button",
-                                            disabled: !clickable,
-                                            class: label_class,
-                                            onclick: move |_| {
-                                                if clickable { ctx.go_to_index(i); }
-                                            },
-                                            "{title}"
+                                        div { class: pb_class,
+                                            button {
+                                                r#type: "button",
+                                                disabled: !clickable,
+                                                class: label_class,
+                                                "aria-current": if is_current { "step" },
+                                                onclick: move |_| {
+                                                    if clickable { ctx.go_to_index(i); }
+                                                },
+                                                "{title}"
+                                            }
                                         }
                                     }
                                 }
@@ -794,25 +875,25 @@ pub fn StepProgress(
             rsx! {
                 nav {
                     "data-name": "StepProgress",
-                    class: "{container_class}",
                     hidden: if *ctx.completed.read() { true },
-                    role: "list",
                     "aria-label": "Progress",
                     "data-current-step": "{current_step_str()}",
-                    for i in 0..len {
-                        {
-                            let is_current = ctx.step_state(i) == StepState::Current;
-                            let dot_class = if is_current {
-                                "h-1.5 w-6 rounded-full bg-primary transition-all duration-300"
-                            } else {
-                                "h-1.5 w-1.5 rounded-full bg-muted transition-all duration-300"
-                            };
-                            rsx! {
-                                div {
-                                    key: "{i}",
-                                    role: "listitem",
-                                    "aria-current": if is_current { "step" },
-                                    class: dot_class,
+                    ol { class: "{container_class}", role: "list",
+                        for i in 0..len {
+                            {
+                                let is_current = ctx.step_state(i) == StepState::Current;
+                                let dot_class = if is_current {
+                                    DOT_ACTIVE_ANIMATED
+                                } else {
+                                    DOT_INACTIVE_ANIMATED
+                                };
+                                rsx! {
+                                    li {
+                                        key: "{i}",
+                                        "aria-label": "Step {i + 1}",
+                                        "aria-current": if is_current { "step" },
+                                        class: dot_class,
+                                    }
                                 }
                             }
                         }

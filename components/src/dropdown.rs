@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 
-use crate::hooks::{use_escape_listener, use_outside_dismiss, use_unique_id};
+#[cfg(feature = "web")]
+use crate::focus::focus_first_descendant;
+use crate::hooks::{use_escape_listener_open, use_outside_dismiss, use_unique_id};
 use crate::icon::{Icon, IconName};
 use crate::link::Link;
 use crate::placement::Placement;
@@ -32,7 +34,9 @@ const RADIO_ITEM_CLASS: &str = "flex w-full items-center justify-between rounded
 const ICON_WRAP: &str = "text-muted-foreground [&>svg]:w-5 [&>svg]:h-5 [&>svg]:stroke-2";
 const ITEM_CLASS_SM: &str = "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer text-left focus:outline-none focus:bg-accent focus:text-accent-foreground";
 const ICON_WRAP_SM: &str = "text-muted-foreground [&>svg]:w-4 [&>svg]:h-4 [&>svg]:stroke-2";
-const CHEVRON_LEFT: &str =
+/// The submenu trigger's chevron: a right chevron rotated to point left, since
+/// [`DropdownMenuSub`] opens its panel to the left of the parent menu.
+const SUB_CHEVRON_CLASS: &str =
     "w-4 h-4 text-muted-foreground transition-transform duration-150 rotate-180";
 
 /// Wrap part of the tree (typically the app shell) so at most one [`DropdownMenu`] is open:
@@ -106,9 +110,13 @@ fn dropdown_panel_class(
     )
 }
 
+/// Shared by the menu with its items so every item close (link, button, radio,
+/// close button) goes through the menu's single `close` path — which also
+/// releases the [`DropdownMenuCoordinator`] slot, so a consumer-owned `open`
+/// signal never reads a stale `true`.
 #[derive(Clone, Copy)]
 struct DropdownContext {
-    set_open: Signal<bool>,
+    close: Callback<()>,
 }
 
 /// Move focus to the previous/next/first/last `menuitem` inside `root` in
@@ -171,9 +179,6 @@ pub fn DropdownMenu(
     let panel_id: ReadSignal<String> = use_memo(move || format!("{}-panel", base_id())).into();
     let mut root_el = use_signal(|| None::<web_sys::Element>);
 
-    use_context_provider(|| DropdownContext { set_open: eff_open });
-    use_context_provider(|| size);
-
     // Visible only when our state is open *and* — if a coordinator governs us —
     // we are the menu it has registered as open. Deriving this (rather than a
     // write-back effect) is what lets a second menu opening close the first.
@@ -194,7 +199,10 @@ pub fn DropdownMenu(
         }
     });
 
-    use_escape_listener(move || close.call(()));
+    use_context_provider(|| DropdownContext { close });
+    use_context_provider(|| size);
+
+    use_escape_listener_open(is_open.into(), move || close.call(()));
     use_outside_dismiss(root_el, is_open.into(), move || close.call(()));
 
     let toggle = move |_| {
@@ -258,8 +266,7 @@ pub fn DropdownMenuItem(
     icon: Element,
     label: Element,
 ) -> Element {
-    let ctx = use_context::<DropdownContext>();
-    let mut set_open = ctx.set_open;
+    let close = use_context::<DropdownContext>().close;
     let size = try_use_context::<DropdownMenuSize>().unwrap_or_default();
     let item_class = match size {
         DropdownMenuSize::Small => ITEM_CLASS_SM,
@@ -275,9 +282,8 @@ pub fn DropdownMenuItem(
             Link {
                 to: target,
                 class: "{item_class}",
-                onclick: move |_| {
-                    *set_open.write() = false;
-                },
+                role: "menuitem",
+                onclick: move |_| close.call(()),
                 span { class: "{icon_wrap_class}", {icon} }
                 Text { size: TextSize::Small, {label} }
             }
@@ -288,7 +294,7 @@ pub fn DropdownMenuItem(
                 role: "menuitem",
                 class: "{item_class}",
                 onclick: move |_| {
-                    *set_open.write() = false;
+                    close.call(());
                     if let Some(cb) = &on_click {
                         cb.call(());
                     }
@@ -300,10 +306,29 @@ pub fn DropdownMenuItem(
     }
 }
 
+/// Nested menu that flies out to the left of its trigger. Opens on hover,
+/// click, or ArrowRight (which also moves focus into it); ArrowLeft from
+/// anywhere inside closes it and returns focus to the trigger.
 #[component]
 pub fn DropdownMenuSub(icon: Element, label: Element, children: Element) -> Element {
     let mut is_sub_open = use_signal(|| false);
+    // Set by ArrowRight: focus the first submenu item once the panel is visible
+    // (it is `hidden` until the open state has rendered, so focusing in the
+    // key handler itself would fail).
+    let mut focus_pending = use_signal(|| false);
+    let mut trigger_el = use_signal(|| None::<web_sys::Element>);
+    let mut panel_el = use_signal(|| None::<web_sys::Element>);
     let is_open_val = is_sub_open();
+
+    use_effect(move || {
+        if is_sub_open() && focus_pending() {
+            focus_pending.set(false);
+            #[cfg(feature = "web")]
+            if let Some(panel) = panel_el.peek().clone() {
+                focus_first_descendant(&panel);
+            }
+        }
+    });
 
     let visibility = if is_open_val {
         "opacity-100 scale-100 pointer-events-auto"
@@ -327,23 +352,59 @@ pub fn DropdownMenuSub(icon: Element, label: Element, children: Element) -> Elem
             onmouseleave: move |_| {
                 *is_sub_open.write() = false;
             },
+            onkeydown: move |e| {
+                if e.key() == Key::ArrowLeft && *is_sub_open.peek() {
+                    e.prevent_default();
+                    e.stop_propagation();
+                    is_sub_open.set(false);
+                    #[cfg(feature = "web")]
+                    {
+                        use wasm_bindgen::JsCast;
+                        if let Some(html) = trigger_el
+                            .peek()
+                            .as_ref()
+                            .and_then(|el| el.dyn_ref::<web_sys::HtmlElement>())
+                        {
+                            let _ = html.focus();
+                        }
+                    }
+                }
+            },
             button {
                 role: "menuitem",
                 "aria-haspopup": "menu",
                 "aria-expanded": is_open_val,
                 class: "{ITEM_CLASS}",
+                onmounted: move |e| {
+                    if let Some(el) = e.downcast::<web_sys::Element>() {
+                        trigger_el.set(Some(el.clone()));
+                    }
+                },
                 onclick: move |_| {
                     *is_sub_open.write() ^= true;
                 },
+                onkeydown: move |e| {
+                    if e.key() == Key::ArrowRight {
+                        e.prevent_default();
+                        e.stop_propagation();
+                        focus_pending.set(true);
+                        is_sub_open.set(true);
+                    }
+                },
                 span { class: "{ICON_WRAP}", {icon} }
                 Text { size: TextSize::Small, class: "flex-1", {label} }
-                Icon { name: IconName::ChevronRight, class: "{CHEVRON_LEFT}" }
+                Icon { name: IconName::ChevronRight, class: "{SUB_CHEVRON_CLASS}" }
             }
             div {
                 class: "{sub_wrap_class}",
                 div {
                     role: "menu",
                     class: "w-48 rounded-2xl bg-popover text-popover-foreground p-2 border border-border shadow-lg",
+                    onmounted: move |e| {
+                        if let Some(el) = e.downcast::<web_sys::Element>() {
+                            panel_el.set(Some(el.clone()));
+                        }
+                    },
                     div { class: "flex flex-col gap-0.5",
                         {children}
                     }
@@ -366,7 +427,7 @@ pub fn DropdownMenuRadioItem(
     } else {
         "w-4 h-4 rounded-full border-2 border-muted-foreground/40 transition-all duration-150"
     };
-    let set_open = try_use_context::<DropdownContext>().map(|ctx| ctx.set_open);
+    let close = try_use_context::<DropdownContext>().map(|ctx| ctx.close);
     let size = try_use_context::<DropdownMenuSize>().unwrap_or_default();
     let icon_wrap_class = match size {
         DropdownMenuSize::Small => ICON_WRAP_SM,
@@ -379,8 +440,8 @@ pub fn DropdownMenuRadioItem(
             "aria-checked": is_active,
             class: "{RADIO_ITEM_CLASS}",
             onclick: move |_| {
-                if let Some(mut set_open) = set_open {
-                    *set_open.write() = false;
+                if let Some(close) = close {
+                    close.call(());
                 }
                 if let Some(cb) = &on_select {
                     cb.call(());
@@ -430,8 +491,7 @@ pub fn DropdownCloseButton(
     #[props(default)] class: String,
     children: Element,
 ) -> Element {
-    let ctx = use_context::<DropdownContext>();
-    let mut set_open = ctx.set_open;
+    let close = use_context::<DropdownContext>().close;
     rsx! {
         button {
             role: "menuitem",
@@ -440,9 +500,79 @@ pub fn DropdownCloseButton(
                 if let Some(cb) = &on_click {
                     cb.call(());
                 }
-                *set_open.write() = false;
+                close.call(());
             },
             {children}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DropdownMenuAlign, DropdownMenuSize, dropdown_panel_class};
+    use crate::placement::Placement;
+
+    #[test]
+    fn closed_panel_is_hidden_and_open_panel_is_not() {
+        let closed = dropdown_panel_class(
+            DropdownMenuSize::Default,
+            false,
+            Placement::Bottom,
+            DropdownMenuAlign::End,
+        );
+        assert!(closed.split_whitespace().any(|c| c == "hidden"));
+        assert!(closed.contains("pointer-events-none"));
+
+        let open = dropdown_panel_class(
+            DropdownMenuSize::Default,
+            true,
+            Placement::Bottom,
+            DropdownMenuAlign::End,
+        );
+        assert!(!open.split_whitespace().any(|c| c == "hidden"));
+        assert!(open.contains("pointer-events-auto"));
+    }
+
+    #[test]
+    fn alignment_picks_edge_and_origin() {
+        let start = dropdown_panel_class(
+            DropdownMenuSize::Default,
+            true,
+            Placement::Bottom,
+            DropdownMenuAlign::Start,
+        );
+        assert!(start.contains("left-0") && start.contains("origin-top-left"));
+        let end = dropdown_panel_class(
+            DropdownMenuSize::Default,
+            true,
+            Placement::Top,
+            DropdownMenuAlign::End,
+        );
+        assert!(end.contains("right-0") && end.contains("origin-bottom-right"));
+    }
+
+    #[test]
+    fn auto_matches_bottom_and_sizes_differ() {
+        let auto = dropdown_panel_class(
+            DropdownMenuSize::Small,
+            true,
+            Placement::Auto,
+            DropdownMenuAlign::End,
+        );
+        let bottom = dropdown_panel_class(
+            DropdownMenuSize::Small,
+            true,
+            Placement::Bottom,
+            DropdownMenuAlign::End,
+        );
+        assert_eq!(auto, bottom);
+        assert!(auto.contains("w-44"));
+        let search = dropdown_panel_class(
+            DropdownMenuSize::Search,
+            true,
+            Placement::Bottom,
+            DropdownMenuAlign::End,
+        );
+        assert!(search.contains("overflow-y-auto"));
     }
 }

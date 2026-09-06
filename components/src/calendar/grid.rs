@@ -91,13 +91,23 @@ pub struct CalendarState {
     pub show_year_picker: Signal<bool>,
 }
 
+/// Hook: allocate the month-view state (`view_year` / `view_month` /
+/// `show_year_picker` signals) starting at `initial`. Call it unconditionally
+/// at the top of a component like any other hook.
+pub fn use_calendar_state(initial: Date) -> CalendarState {
+    CalendarState {
+        view_year: use_signal(move || initial.year()),
+        view_month: use_signal(move || initial.month() as u8 as u32),
+        show_year_picker: use_signal(|| false),
+    }
+}
+
 impl CalendarState {
+    /// Alias of [`use_calendar_state`] kept for compatibility. This is a hook
+    /// (it allocates signals), not a plain constructor — prefer the hook name.
+    #[doc(hidden)]
     pub fn new(initial: Date) -> Self {
-        Self {
-            view_year: use_signal(move || initial.year()),
-            view_month: use_signal(move || initial.month() as u8 as u32),
-            show_year_picker: use_signal(|| false),
-        }
+        use_calendar_state(initial)
     }
 
     pub fn go_prev(mut self) {
@@ -130,69 +140,7 @@ pub fn year_range() -> std::ops::RangeInclusive<i32> {
 
 #[cfg(test)]
 mod tests {
-    use ds_utils::format::format_datetime;
-    use time::{Date, Month, PrimitiveDateTime, Time};
-
     use super::*;
-
-    fn date(y: i32, m: u8, d: u8) -> Date {
-        Date::from_calendar_date(y, Month::try_from(m).unwrap(), d).unwrap()
-    }
-
-    #[test]
-    fn format_datetime_parse_roundtrip() {
-        let d = date(2026, 3, 10);
-        let formatted = format_datetime(&d, 14, 30);
-        let parsed = parse_datetime(&formatted).expect("parse_datetime failed");
-        assert_eq!(parsed.0, d);
-        assert_eq!(parsed.1, 14);
-        assert_eq!(parsed.2, 30);
-    }
-
-    #[test]
-    fn format_datetime_midnight_parse_roundtrip() {
-        let d = date(2025, 1, 1);
-        let formatted = format_datetime(&d, 0, 0);
-        let parsed = parse_datetime(&formatted).expect("parse_datetime midnight failed");
-        assert_eq!(parsed.0, d);
-        assert_eq!(parsed.1, 0);
-        assert_eq!(parsed.2, 0);
-    }
-
-    #[test]
-    fn format_date_parse_roundtrip() {
-        let d = date(2026, 3, 10);
-        let formatted = format_date(&d);
-        let parsed = parse_date(&formatted).expect("parse_date failed");
-        assert_eq!(parsed, d);
-    }
-
-    #[test]
-    fn date_serde_serialize_then_deserialize() {
-        let d = date(2026, 12, 25);
-        let json = serde_json::to_string(&d).unwrap();
-        let parsed: Date = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, d);
-    }
-
-    #[test]
-    fn primitive_datetime_serde_serialize_then_deserialize() {
-        let d = date(2026, 7, 4);
-        let t = Time::from_hms(9, 15, 0).unwrap();
-        let dt = PrimitiveDateTime::new(d, t);
-        let json = serde_json::to_string(&dt).unwrap();
-        let parsed: PrimitiveDateTime = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, dt);
-    }
-
-    #[test]
-    fn format_date_range_parse_roundtrip() {
-        let s = date(2026, 3, 1);
-        let e = date(2026, 3, 15);
-        let formatted = format_date_range(&s, &e);
-        let parsed = parse_date_range(&formatted).expect("parse_date_range failed");
-        assert_eq!(parsed, (s, e));
-    }
 
     #[test]
     fn month_name_valid() {

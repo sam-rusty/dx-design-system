@@ -11,8 +11,9 @@ use dioxus::prelude::*;
 use ds_utils::format::{PhoneFormat, merge};
 
 use super::binding::{BoundField, FieldHandle};
-use super::form::{Form as FormStore, TypedFormData};
+use super::form::{Form as FormStore, FormCore, TypedFormData};
 use crate::checkbox::CheckboxRow;
+use crate::form::hook::FormSubmitState;
 use crate::form::view::{ActionWiring, BoundInput, FormFieldWrapper, TypedKind, form_element};
 use crate::form::{FieldContext, FieldLabel, FormSubmitProp, SubmitFn};
 use crate::input::{FieldSize, InputType};
@@ -47,30 +48,54 @@ pub fn FormProvider<T>(
 where
     T: TypedFormData + Send + Sync + 'static,
 {
-    let ActionWiring { disabled, submit } = crate::form::view::use_action_wiring(
-        action.0,
+    let current = crate::form::view::use_current_action(action.0);
+    provide_form_context(
+        form.core(),
+        action.0.map(|a| a.state()),
         loading,
         inline_error,
-        move |action| form.submit(move |data| action.call(data)),
-        move |err| form.set_server_error(err),
+        Box::new(move || {
+            if let Some(action) = *current.peek() {
+                form.submit(move |data| action.call(data));
+            }
+        }),
     );
-
-    let global_error = use_hook(move || {
-        CopyValue::new(Box::new(move || form.global_error()) as Box<dyn Fn() -> Option<String>>)
-    });
 
     // The store itself rides context too, so controls can resolve bare-lens
     // `field:` props (`MyForm::name`) without an explicit `form.field(...)`.
     use_context_provider(|| form);
+
+    rsx! {
+        {children}
+    }
+}
+
+/// Hook half of [`FormProvider`], `T`-free so it compiles once.
+#[inline(never)]
+fn provide_form_context(
+    core: FormCore,
+    action: Option<FormSubmitState>,
+    loading: Option<Signal<bool>>,
+    inline_error: bool,
+    run_submit: Box<dyn Fn()>,
+) {
+    let ActionWiring { disabled, submit } = crate::form::view::use_action_wiring(
+        action,
+        loading,
+        inline_error,
+        run_submit,
+        Box::new(move |err| core.set_server_error(err)),
+    );
+
+    let global_error = use_hook(move || {
+        CopyValue::new(Box::new(move || core.global_error()) as Box<dyn Fn() -> Option<String>>)
+    });
+
     use_context_provider(|| FormContext {
         disabled,
         submit,
         global_error,
     });
-
-    rsx! {
-        {children}
-    }
 }
 
 /// The `<form>` element for a typed form: submit wiring, disabled fieldset,

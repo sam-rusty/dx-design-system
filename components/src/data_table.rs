@@ -1,6 +1,8 @@
+use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::hash::Hash;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
@@ -277,57 +279,76 @@ impl<T: 'static, F: Fn(&T) -> Element + Send + Sync + 'static> From<F> for ColRe
 
 // ── Column registry (context-shared between DataTable and Col children) ─────
 
-struct ColumnRegistry<T: 'static> {
-    columns: Signal<Vec<TableColumn<T>>>,
+/// A column as registered by [`Col`]: `render` is the `ColRenderFn<T>` boxed
+/// as `Any`, so the registry and the whole table render path compile once
+/// instead of once per row type. `DataTable<T>` downcasts it back.
+#[derive(Clone)]
+struct ErasedColumn {
+    key: &'static str,
+    label: &'static str,
+    sortable: bool,
+    col_class: &'static str,
+    render: Arc<dyn Any + Send + Sync>,
+}
+
+impl ErasedColumn {
+    fn render<T: 'static>(&self, item: &T) -> Element {
+        match self.render.downcast_ref::<ColRenderFn<T>>() {
+            Some(f) => (f.0)(item),
+            None => {
+                debug_assert!(
+                    false,
+                    "Col {:?} registered into a DataTable of another row type",
+                    self.key
+                );
+                rsx! {}
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ColumnRegistry {
+    columns: Signal<Vec<ErasedColumn>>,
     /// Which `Col` instance currently owns each column id. When the table
     /// switches template (loading ↔ ready) Dioxus mounts the new `Col`
     /// instances before dropping the old ones, so an unowned `use_drop`
     /// would delete the freshly registered column.
     owners: Signal<HashMap<&'static str, usize>>,
 }
-impl<T: 'static> Copy for ColumnRegistry<T> {}
-impl<T: 'static> Clone for ColumnRegistry<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
+
+/// `DataTable`'s half of the registry: owns the signals and provides them to
+/// `Col` children.
+#[inline(never)]
+fn use_column_registry() -> ColumnRegistry {
+    let columns = use_signal(Vec::new);
+    let owners = use_signal(HashMap::new);
+    use_context_provider(|| ColumnRegistry { columns, owners })
 }
 
-/// Column declaration for `DataTable`. Use as a child of `DataTable` to register a column.
-///
-/// `id` is the column identifier (used as the sort key when `sortable` is set). `label` is the
-/// header text.
-///
-/// ```ignore
-/// DataTable {
-///     items, item_key: |p: &Person| p.id,
-///     Col { id: "name", label: "Name", sortable: true,
-///         render: |p: &Person| rsx! { "{p.name}" } }
-/// }
-/// ```
-///
-/// `label`, `sortable` and `class` are re-applied whenever they change. `render` is
-/// captured on mount (closures cannot be compared); read reactive state *inside* the
-/// closure, or remount the column with a `key`, when its output depends on other state.
-#[component]
-pub fn Col<T: Clone + PartialEq + 'static>(
+/// `Col`'s half of the registry: register on mount, track prop changes,
+/// unregister on drop. `T`-free (see [`ErasedColumn`]) and never inlined so
+/// the hook bodies exist once.
+#[inline(never)]
+fn use_col(
     id: &'static str,
     label: &'static str,
-    #[props(default)] sortable: bool,
-    #[props(default)] class: &'static str,
-    #[props(into)] render: ColRenderFn<T>,
-) -> Element {
-    let mut registry = use_context::<ColumnRegistry<T>>();
+    sortable: bool,
+    class: &'static str,
+    render: Arc<dyn Any + Send + Sync>,
+) {
+    let mut registry = use_context::<ColumnRegistry>();
     // Per-instance token so `use_drop` only removes a registration this
     // instance still owns (see `ColumnRegistry::owners`).
     let token = use_hook(|| dioxus::core::current_scope_id().0);
     use_hook(move || {
         registry.owners.write_unchecked().insert(id, token);
-        let new_col = TableColumn {
+        let new_col = ErasedColumn {
             key: id,
             label,
             sortable,
             col_class: class,
-            render: render.0.clone(),
+            render,
         };
         let mut cols = registry.columns.write();
         if let Some(pos) = cols.iter().position(|c| c.key == id) {
@@ -358,6 +379,33 @@ pub fn Col<T: Clone + PartialEq + 'static>(
             registry.columns.write().retain(|c| c.key != id);
         }
     });
+}
+
+/// Column declaration for `DataTable`. Use as a child of `DataTable` to register a column.
+///
+/// `id` is the column identifier (used as the sort key when `sortable` is set). `label` is the
+/// header text.
+///
+/// ```ignore
+/// DataTable {
+///     items, item_key: |p: &Person| p.id,
+///     Col { id: "name", label: "Name", sortable: true,
+///         render: |p: &Person| rsx! { "{p.name}" } }
+/// }
+/// ```
+///
+/// `label`, `sortable` and `class` are re-applied whenever they change. `render` is
+/// captured on mount (closures cannot be compared); read reactive state *inside* the
+/// closure, or remount the column with a `key`, when its output depends on other state.
+#[component]
+pub fn Col<T: Clone + PartialEq + 'static>(
+    id: &'static str,
+    label: &'static str,
+    #[props(default)] sortable: bool,
+    #[props(default)] class: &'static str,
+    #[props(into)] render: ColRenderFn<T>,
+) -> Element {
+    use_col(id, label, sortable, class, Arc::new(render));
     rsx! {}
 }
 
@@ -501,12 +549,7 @@ where
     // `loading` / empty / populated renders.
     let selection_state = SelectionState::<K>::new(selection);
     // Provide context so `Col` children can register themselves on mount.
-    let columns_sig = use_signal(Vec::<TableColumn<T>>::new);
-    let owners_sig = use_signal(HashMap::<&'static str, usize>::new);
-    let registry = use_context_provider(|| ColumnRegistry::<T> {
-        columns: columns_sig,
-        owners: owners_sig,
-    });
+    let registry = use_column_registry();
     let expanded = use_signal(HashSet::<K>::new);
 
     let sel = selectable.then_some(selection_state);
@@ -514,235 +557,373 @@ where
     let page_ids: Vec<K> = items.iter().map(|item| (item_key.0)(item)).collect();
 
     // Read registered columns; subscribes to changes when `Col` children register.
-    let columns_arc = Arc::new(registry.columns.read().clone());
+    let columns = registry.columns.read().clone();
 
     // Loading contract: show the skeleton while the parent reports `loading`. `Col`
     // children still mount so the skeleton can mirror the real column count.
     if loading {
-        let registered = columns_arc.len();
-        return match skeleton {
-            Some(s) => rsx! {
-                {children}
-                {s}
-            },
-            None => rsx! {
-                {children}
-                DataTableSkeleton {
-                    rows: skeleton_rows,
-                    columns: if registered == 0 { 3 } else { registered },
-                }
-            },
-        };
+        return render_loading(children, skeleton, skeleton_rows, columns.len());
     }
 
     let page_val = page.map(|p| p()).unwrap_or(1);
-    let has_actions = row_actions.0.is_some();
 
     // Empty state
     if items.is_empty() && page_val <= 1 {
-        return match empty {
-            Some(e) => rsx! {
-                {children}
-                {e}
-            },
-            None => rsx! {
-                {children}
-                ListStatus {
-                    kind: ListStatusKind::Empty,
-                    class: "bg-card rounded-xl border border-border",
-                }
-            },
+        return render_empty(children, empty);
+    }
+
+    // Everything below that needs `T` or `K` is resolved here into
+    // `ErasedRow`s; the markup itself is built once in `render_table`.
+    let expandable = row_expand.0.is_some();
+    let rows: Vec<ErasedRow> = items
+        .iter()
+        .map(|item| {
+            let row_id = (item_key.0)(item);
+            let is_open = expanded.read().contains(&row_id);
+            ErasedRow {
+                key: row_id.to_string(),
+                href: row_href.0.as_ref().map(|rh| rh(item)),
+                actions: row_actions.0.as_ref().map(|ra| ra(item)),
+                left: row_left.0.as_ref().map(|rl| rl(row_id)),
+                checkbox: sel.map(|s| RowCheckbox {
+                    checked: s.is_selected(row_id),
+                    toggle: Rc::new(move || s.toggle(row_id)),
+                }),
+                cells: columns
+                    .iter()
+                    .map(|c| (c.col_class, c.render(item)))
+                    .collect(),
+                is_open,
+                // Panel closure invoked ONLY when expanded → lazy mount of any
+                // inner component.
+                panel: (expandable && is_open)
+                    .then(|| row_expand.0.as_ref().map(|f| f(item)))
+                    .flatten(),
+                toggle_expand: expandable.then(|| {
+                    Rc::new(move || {
+                        let mut expanded = expanded;
+                        let mut set = expanded.write();
+                        if !set.remove(&row_id) {
+                            set.insert(row_id);
+                        }
+                    }) as Rc<dyn Fn()>
+                }),
+            }
+        })
+        .collect();
+
+    let select_all = sel.map(|s| {
+        let all = s.all_on_page_selected(&page_ids);
+        let ids = page_ids.clone();
+        SelectAll {
+            all,
+            indeterminate: s.some_selected() && !all,
+            select_all: Rc::new(move || s.select_all(&ids)),
+            deselect_all: Rc::new(move || s.deselect_all()),
+        }
+    });
+
+    render_table(TableView {
+        class,
+        children,
+        header_left,
+        select_all,
+        columns,
+        sort_key,
+        sort_dir,
+        sort_href,
+        has_actions: row_actions.0.is_some(),
+        rows,
+        page: page.is_some(),
+        page_val,
+        has_more,
+        page_href,
+    })
+}
+
+// ── Type-erased render path ──────────────────────────────────────────────────
+//
+// `DataTable<T, K>` is instantiated once per row/key type an app uses. The
+// markup below is the bulk of its code and needs neither `T` nor `K`, so it
+// is built from erased inputs in non-generic, never-inlined functions.
+
+struct RowCheckbox {
+    checked: bool,
+    toggle: Rc<dyn Fn()>,
+}
+
+struct ErasedRow {
+    key: String,
+    href: Option<NavigationTarget>,
+    actions: Option<Element>,
+    left: Option<Element>,
+    checkbox: Option<RowCheckbox>,
+    /// `(column class, rendered cell)` per registered column.
+    cells: Vec<(&'static str, Element)>,
+    is_open: bool,
+    panel: Option<Element>,
+    /// `Some` when rows expand on click (`row_expand` set).
+    toggle_expand: Option<Rc<dyn Fn()>>,
+}
+
+struct SelectAll {
+    all: bool,
+    indeterminate: bool,
+    select_all: Rc<dyn Fn()>,
+    deselect_all: Rc<dyn Fn()>,
+}
+
+struct TableView {
+    class: String,
+    children: Element,
+    header_left: Option<Element>,
+    select_all: Option<SelectAll>,
+    columns: Vec<ErasedColumn>,
+    sort_key: Option<ReadSignal<String>>,
+    sort_dir: Option<ReadSignal<SortDir>>,
+    sort_href: SortHrefProp,
+    has_actions: bool,
+    rows: Vec<ErasedRow>,
+    page: bool,
+    page_val: u32,
+    has_more: bool,
+    page_href: PageHrefProp,
+}
+
+#[inline(never)]
+fn render_loading(
+    children: Element,
+    skeleton: Option<Element>,
+    skeleton_rows: usize,
+    registered: usize,
+) -> Element {
+    match skeleton {
+        Some(s) => rsx! {
+            {children}
+            {s}
+        },
+        None => rsx! {
+            {children}
+            DataTableSkeleton {
+                rows: skeleton_rows,
+                columns: if registered == 0 { 3 } else { registered },
+            }
+        },
+    }
+}
+
+#[inline(never)]
+fn render_empty(children: Element, empty: Option<Element>) -> Element {
+    match empty {
+        Some(e) => rsx! {
+            {children}
+            {e}
+        },
+        None => rsx! {
+            {children}
+            ListStatus {
+                kind: ListStatusKind::Empty,
+                class: "bg-card rounded-xl border border-border",
+            }
+        },
+    }
+}
+
+fn render_header_cell(
+    c: &ErasedColumn,
+    sort_key: Option<ReadSignal<String>>,
+    sort_dir: Option<ReadSignal<SortDir>>,
+    sort_href: &SortHrefProp,
+) -> Element {
+    let col_class = c.col_class;
+    let label = c.label;
+    let col_key = c.key;
+
+    if !c.sortable {
+        return rsx! {
+            div { class: "{col_class}", "{label}" }
         };
     }
 
-    // Wrap shared closures in Arc so they're Clone-able inside views
-    let sort_href_arc = sort_href.0;
-    let row_href_arc = row_href.0;
-    let row_actions_arc = row_actions.0;
-    let row_left_arc = row_left.0;
-    let row_expand_arc = row_expand.0;
+    let current_key = sort_key.as_ref().map(|sk| sk()).unwrap_or_default();
+    let current_dir = sort_dir.map(|sd| sd()).unwrap_or_default();
+    let is_current = current_key == col_key;
+    let new_dir = if is_current {
+        current_dir.toggle()
+    } else {
+        SortDir::Asc
+    };
+    let sort_icon = if is_current {
+        match current_dir {
+            SortDir::Asc => rsx! {
+                Icon { name: IconName::ChevronUp, class: "size-3 text-primary" }
+            },
+            SortDir::Desc => rsx! {
+                Icon { name: IconName::ChevronDown, class: "size-3 text-primary" }
+            },
+        }
+    } else {
+        rsx! {}
+    };
+    let href_val = sort_href
+        .0
+        .as_ref()
+        .map(|f| f(col_key, new_dir))
+        .unwrap_or_default();
+    rsx! {
+        Link {
+            to: href_val,
+            class: "{col_class} flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer",
+            "{label}"
+            {sort_icon}
+        }
+    }
+}
+
+fn render_row(row: ErasedRow) -> Element {
+    let ErasedRow {
+        key: row_id,
+        href,
+        actions: actions_view,
+        left: row_left_view,
+        checkbox,
+        cells,
+        is_open,
+        panel: panel_view,
+        toggle_expand,
+    } = row;
+    let expandable = toggle_expand.is_some();
+    let is_link = href.is_some() && !expandable;
+    let is_selected = checkbox.as_ref().is_some_and(|c| c.checked);
+    let row_class = if is_selected {
+        ROW_SELECTED
+    } else if is_link || expandable {
+        ROW_LINK
+    } else {
+        ROW_BASE
+    };
+
+    let cells_view = match (is_link, href) {
+        (true, Some(h)) => rsx! {
+            Link {
+                to: h,
+                style: Some("display:contents".to_string()),
+                for (class, cell) in cells {
+                    div { class: "{class}", {cell} }
+                }
+            }
+        },
+        _ => rsx! {
+            for (class, cell) in cells {
+                div { class: "{class}", {cell} }
+            }
+        },
+    };
+
+    let checkbox_view = checkbox.map(|c| {
+        let toggle = c.toggle;
+        rsx! {
+            div { class: "flex items-center justify-center w-6 shrink-0",
+                CheckboxBase {
+                    checked: Some(c.checked),
+                    on_checked_change: move |_: bool| toggle(),
+                }
+            }
+        }
+    });
+
+    // The chevron is a real button so the panel is reachable by keyboard and
+    // announces its state; its click is stopped so the row handler does not
+    // toggle a second time.
+    let chevron_view = toggle_expand.clone().map(|toggle| {
+        let cls = if is_open {
+            "size-4 shrink-0 text-muted-foreground rotate-90 transition-transform"
+        } else {
+            "size-4 shrink-0 text-muted-foreground transition-transform"
+        };
+        rsx! {
+            button {
+                r#type: "button",
+                class: "inline-flex shrink-0 cursor-pointer",
+                "aria-expanded": is_open,
+                "aria-label": "Toggle details",
+                onclick: move |e: Event<MouseData>| {
+                    e.stop_propagation();
+                    toggle();
+                },
+                Icon { name: IconName::ChevronRight, class: "{cls}" }
+            }
+        }
+    });
+
+    let on_row_click = move |_: Event<MouseData>| {
+        if let Some(toggle) = &toggle_expand {
+            toggle();
+        }
+    };
+
+    rsx! {
+        div {
+            key: "{row_id}",
+            class: row_class,
+            onclick: on_row_click,
+            {chevron_view}
+            // Slots are interactive (checkboxes, action buttons): their clicks
+            // must not bubble into the row's expand/navigate handler.
+            if let Some(v) = row_left_view {
+                div { class: "contents", onclick: |e| e.stop_propagation(), {v} }
+            }
+            if let Some(v) = checkbox_view {
+                div { class: "contents", onclick: |e| e.stop_propagation(), {v} }
+            }
+            {cells_view}
+            if let Some(v) = actions_view {
+                div { class: "contents", onclick: |e| e.stop_propagation(), {v} }
+            }
+        }
+        if let Some(panel) = panel_view {
+            div {
+                key: "{row_id}-panel",
+                {panel}
+            }
+        }
+    }
+}
+
+#[inline(never)]
+fn render_table(view: TableView) -> Element {
+    let TableView {
+        class,
+        children,
+        header_left,
+        select_all,
+        columns,
+        sort_key,
+        sort_dir,
+        sort_href,
+        has_actions,
+        rows,
+        page,
+        page_val,
+        has_more,
+        page_href,
+    } = view;
 
     let outer = merge(&[
         "bg-card flex flex-col rounded-xl border border-border overflow-hidden",
         &class,
     ]);
 
-    // Pre-compute header cells
-    let header_cells: Vec<Element> = columns_arc.iter().map(|c| {
-        let col_class = c.col_class;
-        let label = c.label;
-        let col_key = c.key;
-        let sortable = c.sortable;
-
-        if sortable {
-            let current_key = sort_key.as_ref().map(|sk| sk()).unwrap_or_default();
-            let current_dir = sort_dir.map(|sd| sd()).unwrap_or_default();
-            let is_current = current_key == col_key;
-            let new_dir = if is_current {
-                current_dir.toggle()
-            } else {
-                SortDir::Asc
-            };
-            let sort_icon = if is_current {
-                match current_dir {
-                    SortDir::Asc => rsx! {
-                        Icon { name: IconName::ChevronUp, class: "size-3 text-primary" }
-                    },
-                    SortDir::Desc => rsx! {
-                        Icon { name: IconName::ChevronDown, class: "size-3 text-primary" }
-                    },
-                }
-            } else {
-                rsx! {}
-            };
-            let href_val = sort_href_arc.as_ref().map(|f| f(col_key, new_dir)).unwrap_or_default();
-            rsx! {
-                Link {
-                    to: href_val,
-                    class: "{col_class} flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer",
-                    "{label}"
-                    {sort_icon}
-                }
-            }
-        } else {
-            rsx! {
-                div { class: "{col_class}", "{label}" }
-            }
-        }
-    }).collect();
-
-    // Pre-compute rows
-    let rows: Vec<Element> = items
+    let header_cells: Vec<Element> = columns
         .iter()
-        .map(|item| {
-            let row_id = (item_key.0)(item);
-            let href = row_href_arc.as_ref().map(|rh| rh(item));
-            let actions_view = row_actions_arc.as_ref().map(|ra| ra(item));
-            let row_left_view = row_left_arc.as_ref().map(|rl| rl(row_id));
-            let expandable = row_expand_arc.is_some();
-            let is_open = expanded.read().contains(&row_id);
-            let is_link = href.is_some() && !expandable;
-
-            let is_selected = sel.map(|s| s.is_selected(row_id)).unwrap_or(false);
-            let row_class = if is_selected {
-                ROW_SELECTED
-            } else if is_link || expandable {
-                ROW_LINK
-            } else {
-                ROW_BASE
-            };
-
-            let cells: Vec<Element> = columns_arc
-                .iter()
-                .map(|c| {
-                    let cell = (c.render)(item);
-                    let class = c.col_class;
-                    rsx! { div { class: "{class}", {cell} } }
-                })
-                .collect();
-
-            let cells_view = match (is_link, href) {
-                (true, Some(h)) => rsx! {
-                    Link {
-                        to: h,
-                        style: Some("display:contents".to_string()),
-                        for cell in cells { {cell} }
-                    }
-                },
-                _ => rsx! {
-                    for cell in cells { {cell} }
-                },
-            };
-
-            let checkbox_view = sel.map(|s| {
-                let checked = s.is_selected(row_id);
-                rsx! {
-                    div { class: "flex items-center justify-center w-6 shrink-0",
-                        CheckboxBase {
-                            checked: Some(checked),
-                            on_checked_change: move |_: bool| {
-                                s.toggle(row_id);
-                            },
-                        }
-                    }
-                }
-            });
-
-            let toggle_row = move || {
-                let mut expanded = expanded;
-                let mut set = expanded.write();
-                if !set.remove(&row_id) {
-                    set.insert(row_id);
-                }
-            };
-
-            // The chevron is a real button so the panel is reachable by keyboard and
-            // announces its state; its click is stopped so the row handler does not
-            // toggle a second time.
-            let chevron_view = expandable.then(|| {
-                let cls = if is_open {
-                    "size-4 shrink-0 text-muted-foreground rotate-90 transition-transform"
-                } else {
-                    "size-4 shrink-0 text-muted-foreground transition-transform"
-                };
-                rsx! {
-                    button {
-                        r#type: "button",
-                        class: "inline-flex shrink-0 cursor-pointer",
-                        "aria-expanded": is_open,
-                        "aria-label": "Toggle details",
-                        onclick: move |e: Event<MouseData>| {
-                            e.stop_propagation();
-                            toggle_row();
-                        },
-                        Icon { name: IconName::ChevronRight, class: "{cls}" }
-                    }
-                }
-            });
-
-            // Panel closure invoked ONLY when expanded → lazy mount of any inner component.
-            let panel_view = (expandable && is_open)
-                .then(|| row_expand_arc.as_ref().map(|f| f(item)))
-                .flatten();
-
-            let on_row_click = move |_: Event<MouseData>| {
-                if expandable {
-                    toggle_row();
-                }
-            };
-
-            rsx! {
-                div {
-                    key: "{row_id}",
-                    class: row_class,
-                    onclick: on_row_click,
-                    {chevron_view}
-                    // Slots are interactive (checkboxes, action buttons): their clicks
-                    // must not bubble into the row's expand/navigate handler.
-                    if let Some(v) = row_left_view {
-                        div { class: "contents", onclick: |e| e.stop_propagation(), {v} }
-                    }
-                    if let Some(v) = checkbox_view {
-                        div { class: "contents", onclick: |e| e.stop_propagation(), {v} }
-                    }
-                    {cells_view}
-                    if let Some(v) = actions_view {
-                        div { class: "contents", onclick: |e| e.stop_propagation(), {v} }
-                    }
-                }
-                if let Some(panel) = panel_view {
-                    div {
-                        key: "{row_id}-panel",
-                        {panel}
-                    }
-                }
-            }
-        })
+        .map(|c| render_header_cell(c, sort_key, sort_dir, &sort_href))
         .collect();
 
+    let rows: Vec<Element> = rows.into_iter().map(render_row).collect();
+
     // Pagination: only when page signal, href builder, and nav is meaningful
-    let pagination_view = match (&page, page_href.0.as_ref()) {
-        (Some(_), Some(page_href_fn)) if page_val > 1 || has_more => {
+    let pagination_view = match (page, page_href.0.as_ref()) {
+        (true, Some(page_href_fn)) if page_val > 1 || has_more => {
             let prev_p = page_val.saturating_sub(1).max(1);
             let next_p = page_val + 1;
             let prev_href = page_href_fn(prev_p);
@@ -764,10 +945,9 @@ where
         _ => rsx! {},
     };
 
-    let select_all_view = sel.map(|s| {
-        let all = s.all_on_page_selected(&page_ids);
-        let is_indeterminate = s.some_selected() && !all;
-        if is_indeterminate {
+    let select_all_view = select_all.map(|s| {
+        if s.indeterminate {
+            let deselect_all = s.deselect_all;
             rsx! {
                 div { class: "flex items-center justify-center w-6 shrink-0",
                     button {
@@ -776,7 +956,7 @@ where
                         class: "inline-flex items-center justify-center size-[18px] shrink-0 cursor-pointer select-none",
                         onclick: move |e| {
                             e.stop_propagation();
-                            s.deselect_all();
+                            deselect_all();
                         },
                         span { class: "flex items-center justify-center size-[18px] rounded-sm bg-primary border-2 border-primary transition-all duration-150",
                             Icon {
@@ -789,13 +969,18 @@ where
                 }
             }
         } else {
-            let ids = page_ids.clone();
+            let SelectAll {
+                all,
+                select_all,
+                deselect_all,
+                ..
+            } = s;
             rsx! {
                 div { class: "flex items-center justify-center w-6 shrink-0",
                     CheckboxBase {
                         checked: Some(all),
                         on_checked_change: move |checked: bool| {
-                            if checked { s.select_all(&ids) } else { s.deselect_all() }
+                            if checked { select_all() } else { deselect_all() }
                         },
                     }
                 }

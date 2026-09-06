@@ -7,7 +7,7 @@ mod money;
 
 pub use self::components::*;
 pub use binding::{FieldBinding, use_field_binding};
-pub(crate) use components::{ActionWiring, form_element, use_action_wiring};
+pub(crate) use components::{ActionWiring, form_element, use_action_wiring, use_current_action};
 pub use layout::*;
 pub(crate) use money::MoneyControl;
 pub use money::MoneyInput;

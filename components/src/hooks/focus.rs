@@ -20,12 +20,23 @@ pub(crate) fn use_focus_provider(roving_loop: ReadSignal<bool>) -> FocusState {
 }
 
 pub(crate) fn use_focus_entry_disabled(
-    mut ctx: FocusState,
+    ctx: FocusState,
     index: impl Readable<Target = usize> + Copy + 'static,
     disabled: impl Fn() -> bool + Copy + 'static,
 ) {
+    focus_entry_disabled(ctx, Box::new(move || index.cloned()), Box::new(disabled));
+}
+
+/// Body of [`use_focus_entry_disabled`]; inputs are boxed at the boundary so
+/// the effect compiles once rather than per widget.
+#[inline(never)]
+fn focus_entry_disabled(
+    mut ctx: FocusState,
+    index: Box<dyn Fn() -> usize>,
+    disabled: Box<dyn Fn() -> bool>,
+) {
     use_effect_with_cleanup(move || {
-        let idx = index.cloned();
+        let idx = index();
         ctx.add_update_item(idx, disabled());
         move || {
             ctx.remove_item(idx);
@@ -46,15 +57,27 @@ pub(crate) fn use_focus_control_disabled(
     index: impl Readable<Target = usize> + Copy + 'static,
     disabled: impl Fn() -> bool + Copy + 'static,
 ) -> impl FnMut(MountedEvent) {
-    let mut controlled_ref: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
+    let mut controlled_ref =
+        focus_control_disabled(ctx, Box::new(move || index.cloned()), Box::new(disabled));
+    move |data: Event<MountedData>| controlled_ref.set(Some(data.data()))
+}
+
+/// Hook half of [`use_focus_control_disabled`], compiled once (see
+/// [`focus_entry_disabled`]).
+#[inline(never)]
+fn focus_control_disabled(
+    ctx: FocusState,
+    index: Box<dyn Fn() -> usize>,
+    disabled: Box<dyn Fn() -> bool>,
+) -> Signal<Option<Rc<MountedData>>> {
+    let controlled_ref: Signal<Option<Rc<MountedData>>> = use_signal(|| None);
     use_effect(move || {
         if disabled() {
             return;
         }
-        ctx.control_mount_focus(index.cloned(), controlled_ref);
+        ctx.control_mount_focus(index(), controlled_ref);
     });
-
-    move |data: Event<MountedData>| controlled_ref.set(Some(data.data()))
+    controlled_ref
 }
 
 fn first_enabled<'a>(iter: impl IntoIterator<Item = (&'a usize, &'a bool)>) -> Option<usize> {

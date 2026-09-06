@@ -49,10 +49,12 @@ fn in_runtime<R>(f: impl FnOnce() -> R) -> R {
 }
 
 fn new_form() -> Form<OrderForm> {
+    let data = Signal::new_in_scope(OrderForm::default(), ScopeId::ROOT);
     Form {
-        data: Signal::new_in_scope(OrderForm::default(), ScopeId::ROOT),
+        data,
         aux: Signal::new_in_scope(AuxState::default(), ScopeId::ROOT),
         registry: Signal::new_in_scope(Default::default(), ScopeId::ROOT),
+        validate: CopyValue::new_in_scope(super::form::erased_validator(data), ScopeId::ROOT),
     }
 }
 

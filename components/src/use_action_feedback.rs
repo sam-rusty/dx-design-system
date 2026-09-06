@@ -1,3 +1,4 @@
+use dioxus::CapturedError;
 use dioxus::prelude::*;
 
 use crate::form::captured_app_error;
@@ -30,18 +31,39 @@ pub fn use_action_feedback<I, T, S>(
     mut action: Action<I, T>,
     success_toast: impl Into<Option<&'static str>>,
     error_prefix: impl Into<Option<&'static str>>,
-    mut on_success: S,
+    on_success: S,
 ) where
     I: 'static,
     T: 'static,
     S: FnMut() + 'static,
 {
-    let toast = use_toast();
-    let success_toast = success_toast.into();
-    let error_prefix = error_prefix.into();
+    action_feedback(
+        Box::new(move || action.value().map(|r| r.map(|_| ()))),
+        Box::new(move || action.reset()),
+        success_toast.into(),
+        error_prefix.into(),
+        Box::new(on_success),
+    );
+}
 
-    use_effect(move || match action.value() {
-        Some(Ok(_)) => {
+/// Outcome of the last action call with the success payload erased.
+type ActionOutcome = Option<Result<(), CapturedError>>;
+
+/// Body of [`use_action_feedback`] with `I`/`T`/`S` erased at the boundary,
+/// so the effect and toast wiring compile once per app instead of once per
+/// call site.
+#[inline(never)]
+fn action_feedback(
+    outcome: Box<dyn Fn() -> ActionOutcome>,
+    mut reset: Box<dyn FnMut()>,
+    success_toast: Option<&'static str>,
+    error_prefix: Option<&'static str>,
+    mut on_success: Box<dyn FnMut()>,
+) {
+    let toast = use_toast();
+
+    use_effect(move || match outcome() {
+        Some(Ok(())) => {
             on_success();
             if let Some(msg) = success_toast {
                 toast.push(msg.into(), ToastVariant::Success);
@@ -54,7 +76,7 @@ pub fn use_action_feedback<I, T, S>(
                 None => app_err.to_string(),
             };
             toast.push(msg, ToastVariant::Error);
-            action.reset();
+            reset();
         }
         None => {}
     });

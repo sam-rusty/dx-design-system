@@ -58,6 +58,15 @@ paths, so root re-exports in `components/src/lib.rs` are load-bearing.
   feature builds still compile. Async render states (`use_resource`) need a
   `block_on` + `wait_for_work` harness (see `components/tests/data_table_ssr.rs`).
 - Run `cargo fmt --all` before finishing; no new clippy warnings.
+- WASM size: generic components and hooks (`FormProvider<T>`, `DataTable<T, K>`,
+  `use_*` taking `impl Fn`) are instantiated once per consumer type or call site.
+  Keep the generic shell thin: erase `T`/closures at the boundary (`Box<dyn Fn>`,
+  `Rc<dyn Trait>`, `Arc<dyn Any>`) and put the hook bodies and `rsx!` in a
+  non-generic `#[inline(never)]` fn (`provide_form_context`, `render_table`,
+  `use_col`, `escape_listener_open`, `action_feedback`). Path-keyed form state
+  lives on the `T`-free `FormCore`. Measure with a consumer build + `twiggy`
+  (see `docs/wasm-size.md`).
+
 
 ## Verification commands
 

@@ -12,6 +12,31 @@ pub struct FormSubmit<T: 'static> {
     result_fn: CopyValue<Box<dyn Fn() -> Option<ds_utils::Result<()>>>>,
 }
 
+/// The `T`-free part of a [`FormSubmit`]: the pending/result probes. The
+/// providers' hook wiring runs on this so it compiles once, not per form type.
+#[derive(Clone, Copy)]
+pub(crate) struct FormSubmitState {
+    pending_fn: CopyValue<Box<dyn Fn() -> bool>>,
+    result_fn: CopyValue<Box<dyn Fn() -> Option<ds_utils::Result<()>>>>,
+}
+
+impl PartialEq for FormSubmitState {
+    fn eq(&self, other: &Self) -> bool {
+        self.pending_fn.origin_scope() == other.pending_fn.origin_scope()
+            && self.result_fn.origin_scope() == other.result_fn.origin_scope()
+    }
+}
+
+impl FormSubmitState {
+    pub(crate) fn pending(&self) -> bool {
+        (self.pending_fn.read())()
+    }
+
+    pub(crate) fn result(&self) -> Option<ds_utils::Result<()>> {
+        (self.result_fn.read())()
+    }
+}
+
 /// Optional submit action accepted by the `FormProvider` prop builder.
 ///
 /// This wrapper lets callers pass either a Dioxus [`Action`] directly or a
@@ -76,6 +101,13 @@ impl<T: 'static> PartialEq for FormSubmit<T> {
 impl<T: 'static> FormSubmit<T> {
     pub fn call(&self, data: T) {
         (self.call_fn.write_unchecked())(data);
+    }
+
+    pub(crate) fn state(&self) -> FormSubmitState {
+        FormSubmitState {
+            pending_fn: self.pending_fn,
+            result_fn: self.result_fn,
+        }
     }
 
     pub fn pending(&self) -> bool {

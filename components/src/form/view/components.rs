@@ -9,7 +9,8 @@ use super::binding::field_error_state;
 use super::use_field_binding;
 use crate::copyable::copy_to_clipboard;
 use crate::field_name::Field;
-use crate::form::hook::FormContext;
+use crate::form::aux::AuxState;
+use crate::form::hook::{FormContext, FormSubmitState, SetValueFn, TouchFieldFn};
 use crate::form::{
     DynamicForm, FieldContext, FormData, FormSubmit, FormSubmitProp, GLOBAL_ERROR, SubmitFn,
 };
@@ -24,6 +25,7 @@ use crate::label::Label;
 use crate::separator::Separator;
 use crate::stepper::{auto_register_field, unregister_auto_field};
 use crate::tooltip::Tooltip;
+use std::collections::HashMap;
 
 /// Help icon that reveals `tooltip` content on hover/focus, rendered inline
 /// after a field label.
@@ -60,25 +62,25 @@ pub(crate) struct ActionWiring {
 /// `ctx.disabled`/`ctx.submit` (pre-existing, no consumer relies on it).
 /// Everything is owned by the provider scope (`CopyValue::new`), not
 /// `ScopeId::ROOT`.
-pub(crate) fn use_action_wiring<T: 'static>(
-    action: Option<FormSubmit<T>>,
+///
+/// Deliberately non-generic (`T` is erased into `run_submit` by the caller,
+/// see [`use_current_action`]) and never inlined: the hook bodies below are
+/// the bulk of a provider's code and would otherwise be duplicated per form
+/// type.
+#[inline(never)]
+pub(crate) fn use_action_wiring(
+    action: Option<FormSubmitState>,
     loading: Option<Signal<bool>>,
     inline_error: bool,
-    run_submit: impl Fn(FormSubmit<T>) + 'static,
-    on_server_error: impl Fn(DsError) + 'static,
+    run_submit: Box<dyn Fn()>,
+    on_server_error: Box<dyn Fn(DsError)>,
 ) -> ActionWiring {
     let mut sources = use_signal(|| (action, loading, inline_error));
     if *sources.peek() != (action, loading, inline_error) {
         sources.set((action, loading, inline_error));
     }
 
-    let submit = use_hook(move || {
-        CopyValue::new(Box::new(move || {
-            if let Some(action) = sources.peek().0 {
-                run_submit(action);
-            }
-        }) as SubmitFn)
-    });
+    let submit = use_hook(move || CopyValue::new(run_submit as SubmitFn));
 
     use_effect(move || {
         let (action, _, inline_error) = *sources.read();
@@ -104,6 +106,46 @@ pub(crate) fn use_action_wiring<T: 'static>(
     }
 }
 
+/// Latest `action` prop, kept in a `CopyValue` so the erased submit closure
+/// handed to [`use_action_wiring`] sees a `Some -> Some` prop change.
+pub(crate) fn use_current_action<T: 'static>(
+    action: Option<FormSubmit<T>>,
+) -> CopyValue<Option<FormSubmit<T>>> {
+    let mut current = use_hook(|| CopyValue::new(action));
+    if *current.peek() != action {
+        current.set(action);
+    }
+    current
+}
+
+/// Hook half of the dynamic `FormProvider`, `T`-free.
+#[inline(never)]
+#[allow(clippy::too_many_arguments)]
+fn provide_dynamic_form_context(
+    values_signal: Signal<HashMap<String, String>>,
+    aux: Signal<AuxState>,
+    set_value: CopyValue<SetValueFn>,
+    touch_field: CopyValue<TouchFieldFn>,
+    action: Option<FormSubmitState>,
+    loading: Option<Signal<bool>>,
+    inline_error: bool,
+    run_submit: Box<dyn Fn()>,
+    on_server_error: Box<dyn Fn(DsError)>,
+) {
+    let ActionWiring { disabled, submit } =
+        use_action_wiring(action, loading, inline_error, run_submit, on_server_error);
+
+    use_context_provider(|| FormContext {
+        values_signal,
+        aux,
+        set_value,
+        touch_field,
+        disabled,
+        submit,
+        step_field_registry: None,
+    });
+}
+
 #[component]
 pub fn FormProvider<T>(
     form: DynamicForm<T>,
@@ -115,8 +157,6 @@ pub fn FormProvider<T>(
 where
     T: FormData + Send + Sync + 'static,
 {
-    use crate::form::hook::{FormContext, SetValueFn, TouchFieldFn};
-
     let set_value = use_hook(move || {
         CopyValue::new(Box::new(move |field: &str, value: String| {
             form.set_string_value(field, value);
@@ -129,25 +169,22 @@ where
         }) as TouchFieldFn)
     });
 
-    let ActionWiring { disabled, submit } = use_action_wiring(
-        action.0,
-        loading,
-        inline_error,
-        move |action| form.submit(move |data| action.call(data)),
-        move |err| form.set_server_error(err),
-    );
-
-    let ctx = FormContext {
-        values_signal: form.values_signal,
-        aux: form.aux,
+    let current = use_current_action(action.0);
+    provide_dynamic_form_context(
+        form.values_signal,
+        form.aux,
         set_value,
         touch_field,
-        disabled,
-        submit,
-        step_field_registry: None,
-    };
-
-    use_context_provider(|| ctx);
+        action.0.map(|a| a.state()),
+        loading,
+        inline_error,
+        Box::new(move || {
+            if let Some(action) = *current.peek() {
+                form.submit(move |data| action.call(data));
+            }
+        }),
+        Box::new(move |err| form.set_server_error(err)),
+    );
 
     rsx! {
         {children}

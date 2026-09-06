@@ -16,6 +16,26 @@ use std::rc::Rc;
 
 use dioxus::prelude::ScopeId;
 
+use super::form::FormCore;
+
+/// The typed side of one field (reads/writes through its lens), behind one
+/// vtable per `(form type, lens)`. Everything else a control needs is keyed
+/// by path on the `T`-free [`FormCore`], so it compiles once.
+pub(super) trait FieldOps {
+    fn display(&self) -> String;
+    fn set_text(&self, text: &str);
+    fn clear(&self);
+    fn has_value(&self) -> bool;
+    /// Untracked emptiness probe for the submit-time registry.
+    fn is_empty(&self) -> bool;
+}
+
+/// [`FieldOps`] plus the typed accessors behind [`FieldBinding`].
+pub(super) trait TypedFieldOps<F>: FieldOps {
+    fn read(&self) -> Option<F>;
+    fn set(&self, value: F);
+}
+
 /// Fully erased handle for one form field. All reads marked "reactive"
 /// subscribe the calling scope to the owning form's signals.
 pub struct BoundField {
@@ -28,15 +48,8 @@ pub struct BoundField {
     pub(super) form_scope: ScopeId,
     /// Registration owner token (see `RegisteredField::owner`).
     pub(super) owner: Rc<()>,
-    pub(super) display: Rc<dyn Fn() -> String>,
-    pub(super) set_text: Rc<dyn Fn(&str)>,
-    pub(super) touch: Rc<dyn Fn()>,
-    pub(super) clear: Rc<dyn Fn()>,
-    pub(super) error: Rc<dyn Fn() -> Option<String>>,
-    pub(super) is_touched: Rc<dyn Fn() -> bool>,
-    pub(super) has_value: Rc<dyn Fn() -> bool>,
-    pub(super) register: Rc<dyn Fn()>,
-    pub(super) unregister: Rc<dyn Fn()>,
+    pub(super) core: FormCore,
+    pub(super) ops: Rc<dyn FieldOps>,
 }
 
 impl BoundField {
@@ -56,39 +69,39 @@ impl BoundField {
     /// Text to display in the control (reactive read): overlay text while
     /// unparseable, blank while pristine, else the typed value rendered.
     pub fn display(&self) -> String {
-        (self.display)()
+        self.ops.display()
     }
 
     /// Write raw input text; parses into the typed value or parks the text
     /// in the overlay with a parse error. Empty text resets to pristine.
     pub fn set_text(&self, text: &str) {
-        (self.set_text)(text);
+        self.ops.set_text(text);
     }
 
     /// Write raw input text and mark the field touched (change/commit event).
     pub fn commit_text(&self, text: &str) {
-        (self.set_text)(text);
-        (self.touch)();
+        self.ops.set_text(text);
+        self.touch();
     }
 
     /// Mark the field touched (blur) and revalidate.
     pub fn touch(&self) {
-        (self.touch)();
+        self.core.touch_field(&self.path);
     }
 
     /// Reset the field to pristine (clears value where the type allows).
     pub fn clear(&self) {
-        (self.clear)();
+        self.ops.clear();
     }
 
     /// Current validation message (reactive read).
     pub fn error(&self) -> Option<String> {
-        (self.error)()
+        self.core.error(&self.path)
     }
 
     /// Whether the field has been touched (reactive read).
     pub fn is_touched(&self) -> bool {
-        (self.is_touched)()
+        self.core.is_touched(&self.path)
     }
 
     /// Touched and failing validation (reactive read).
@@ -98,18 +111,24 @@ impl BoundField {
 
     /// Whether the field holds a non-empty written value (reactive read).
     pub fn has_value(&self) -> bool {
-        (self.has_value)()
+        self.ops.has_value()
     }
 
     /// Register this field's metadata (required + emptiness probe) with the
     /// form for submit-time checks. Called by `FormField` on mount.
     pub fn register(&self) {
-        (self.register)();
+        self.core.register(
+            &self.path,
+            self.label,
+            self.required,
+            self.ops.clone(),
+            self.owner.clone(),
+        );
     }
 
     /// Remove this field's registration. Called by `FormField` on drop.
     pub fn unregister(&self) {
-        (self.unregister)();
+        self.core.unregister(&self.path, &self.owner);
     }
 }
 
@@ -121,15 +140,8 @@ impl Clone for BoundField {
             required: self.required,
             form_scope: self.form_scope,
             owner: self.owner.clone(),
-            display: self.display.clone(),
-            set_text: self.set_text.clone(),
-            touch: self.touch.clone(),
-            clear: self.clear.clone(),
-            error: self.error.clone(),
-            is_touched: self.is_touched.clone(),
-            has_value: self.has_value.clone(),
-            register: self.register.clone(),
-            unregister: self.unregister.clone(),
+            core: self.core,
+            ops: self.ops.clone(),
         }
     }
 }
@@ -151,20 +163,19 @@ impl PartialEq for BoundField {
 /// (`form.field(...)`), deduped in props via identity-based [`PartialEq`].
 pub struct FieldBinding<F: 'static> {
     pub(super) erased: BoundField,
-    pub(super) read: Rc<dyn Fn() -> Option<F>>,
-    pub(super) set: Rc<dyn Fn(F)>,
+    pub(super) ops: Rc<dyn TypedFieldOps<F>>,
 }
 
 impl<F> FieldBinding<F> {
     /// Current typed value (reactive read). `None` when the lens misses
     /// (unset `Option` segment / out-of-range index).
     pub fn value(&self) -> Option<F> {
-        (self.read)()
+        self.ops.read()
     }
 
     /// Write a typed value.
     pub fn set(&self, value: F) {
-        (self.set)(value);
+        self.ops.set(value);
     }
 
     /// The fully erased handle (what view components consume).
@@ -191,8 +202,7 @@ impl<F> Clone for FieldBinding<F> {
     fn clone(&self) -> Self {
         Self {
             erased: self.erased.clone(),
-            read: self.read.clone(),
-            set: self.set.clone(),
+            ops: self.ops.clone(),
         }
     }
 }

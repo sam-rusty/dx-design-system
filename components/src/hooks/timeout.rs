@@ -22,7 +22,7 @@ use wasm_bindgen::closure::Closure;
 #[cfg(feature = "web")]
 struct TimeoutState {
     delay_ms: u32,
-    on_elapsed: Rc<RefCell<dyn FnMut()>>,
+    on_elapsed: Rc<RefCell<Box<dyn FnMut()>>>,
     handle: Option<i32>,
     // Kept alive so the JS callback isn't freed before it fires.
     _closure: Option<Closure<dyn FnMut()>>,
@@ -87,6 +87,11 @@ impl Timer {
 /// A one-shot timer that can be armed any number of times and is cancelled on
 /// unmount. Nothing is scheduled until [`Timer::start`] is called.
 pub(crate) fn use_timer(delay_ms: u32, on_elapsed: impl FnMut() + 'static) -> Timer {
+    timer(delay_ms, Box::new(on_elapsed))
+}
+
+#[inline(never)]
+fn timer(delay_ms: u32, on_elapsed: Box<dyn FnMut()>) -> Timer {
     #[cfg(feature = "web")]
     {
         let state = use_hook(|| {

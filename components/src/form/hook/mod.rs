@@ -8,6 +8,7 @@ mod action;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub(crate) use action::FormSubmitState;
 pub use action::{FormSubmit, FormSubmitProp, SubmitFn, captured_app_error};
 use dioxus::prelude::*;
 use ds_utils::DsError;

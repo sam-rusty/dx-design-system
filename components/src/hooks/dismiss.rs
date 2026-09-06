@@ -123,9 +123,10 @@ impl Drop for DomListeners {
 /// Keep the listeners built by `attach` alive exactly while `is_open` reads
 /// `true`; they are removed when it flips to `false` and on unmount.
 #[cfg(feature = "web")]
+#[inline(never)]
 fn use_listeners_while_open(
     is_open: ReadSignal<bool>,
-    attach: impl Fn() -> Option<DomListeners> + 'static,
+    attach: Box<dyn Fn() -> Option<DomListeners>>,
 ) {
     let active: Rc<RefCell<Option<DomListeners>>> = use_hook(|| Rc::new(RefCell::new(None)));
 
@@ -154,11 +155,20 @@ fn use_listeners_while_open(
 /// mounted while closed (`Select`, `DropdownMenu`, a row's `PopoverConfirm`)
 /// never shadows an open one that mounted earlier.
 pub fn use_escape_listener_open(is_open: ReadSignal<bool>, on_escape: impl FnMut() + 'static) {
+    escape_listener_open(is_open, Box::new(on_escape));
+}
+
+/// Body of [`use_escape_listener_open`]. The callback is boxed at the public
+/// boundary and the hooks live here, unmonomorphised and never inlined, so
+/// every overlay component shares one copy.
+#[inline(never)]
+fn escape_listener_open(is_open: ReadSignal<bool>, on_escape: Box<dyn FnMut()>) {
     #[cfg(feature = "web")]
     {
         let id = use_hook(next_overlay_id);
         let stack = use_hook(|| root_stack(|| EscapeStack(Rc::new(RefCell::new(Vec::new())))));
-        let on_escape: Rc<RefCell<dyn FnMut()>> = use_hook(|| Rc::new(RefCell::new(on_escape)));
+        let on_escape: Rc<RefCell<Box<dyn FnMut()>>> =
+            use_hook(|| Rc::new(RefCell::new(on_escape)));
 
         use_effect({
             let stack = stack.clone();
@@ -167,7 +177,7 @@ pub fn use_escape_listener_open(is_open: ReadSignal<bool>, on_escape: impl FnMut
 
         use_listeners_while_open(is_open, {
             let stack = stack.clone();
-            move || {
+            Box::new(move || {
                 let doc = web_sys::window()?.document()?;
                 let stack = stack.clone();
                 let on_escape = on_escape.clone();
@@ -185,7 +195,7 @@ pub fn use_escape_listener_open(is_open: ReadSignal<bool>, on_escape: impl FnMut
                         (on_escape.borrow_mut())();
                     },
                 ))
-            }
+            })
         });
 
         use_drop(move || {
@@ -237,11 +247,22 @@ pub(crate) fn use_outside_dismiss_panel(
     is_open: ReadSignal<bool>,
     on_dismiss: impl FnMut() + 'static,
 ) {
+    outside_dismiss_panel(root_el, panel_el, is_open, Box::new(on_dismiss));
+}
+
+#[inline(never)]
+fn outside_dismiss_panel(
+    root_el: Signal<Option<web_sys::Element>>,
+    panel_el: Signal<Option<web_sys::Element>>,
+    is_open: ReadSignal<bool>,
+    on_dismiss: Box<dyn FnMut()>,
+) {
     #[cfg(feature = "web")]
     {
         let id = use_hook(next_overlay_id);
         let stack = use_hook(|| root_stack(|| OverlayStack(Rc::new(RefCell::new(Vec::new())))));
-        let on_dismiss: Rc<RefCell<dyn FnMut()>> = use_hook(|| Rc::new(RefCell::new(on_dismiss)));
+        let on_dismiss: Rc<RefCell<Box<dyn FnMut()>>> =
+            use_hook(|| Rc::new(RefCell::new(on_dismiss)));
 
         use_effect({
             let stack = stack.clone();
@@ -250,7 +271,7 @@ pub(crate) fn use_outside_dismiss_panel(
 
         use_listeners_while_open(is_open, {
             let stack = stack.clone();
-            move || {
+            Box::new(move || {
                 let doc = web_sys::window()?.document()?;
                 let stack = stack.clone();
                 let on_dismiss = on_dismiss.clone();
@@ -280,7 +301,7 @@ pub(crate) fn use_outside_dismiss_panel(
                         }
                     },
                 ))
-            }
+            })
         });
 
         use_drop(move || {
@@ -309,27 +330,40 @@ pub(crate) fn use_dismiss_on_viewport_change(
     panel_el: Signal<Option<web_sys::Element>>,
     on_dismiss: impl FnMut() + 'static,
 ) {
+    dismiss_on_viewport_change(is_open, panel_el, Box::new(on_dismiss));
+}
+
+#[inline(never)]
+fn dismiss_on_viewport_change(
+    is_open: ReadSignal<bool>,
+    panel_el: Signal<Option<web_sys::Element>>,
+    on_dismiss: Box<dyn FnMut()>,
+) {
     #[cfg(feature = "web")]
     {
-        let on_dismiss: Rc<RefCell<dyn FnMut()>> = use_hook(|| Rc::new(RefCell::new(on_dismiss)));
+        let on_dismiss: Rc<RefCell<Box<dyn FnMut()>>> =
+            use_hook(|| Rc::new(RefCell::new(on_dismiss)));
 
-        use_listeners_while_open(is_open, move || {
-            let win = web_sys::window()?;
-            let on_dismiss = on_dismiss.clone();
-            Some(DomListeners::attach(
-                win.into(),
-                &[("scroll", true), ("resize", false)],
-                move |e| {
-                    let inside_panel = match (event_target_node(&e), panel_el.peek().as_ref()) {
-                        (Some(target), Some(panel)) => panel.contains(Some(&target)),
-                        _ => false,
-                    };
-                    if !inside_panel {
-                        (on_dismiss.borrow_mut())();
-                    }
-                },
-            ))
-        });
+        use_listeners_while_open(
+            is_open,
+            Box::new(move || {
+                let win = web_sys::window()?;
+                let on_dismiss = on_dismiss.clone();
+                Some(DomListeners::attach(
+                    win.into(),
+                    &[("scroll", true), ("resize", false)],
+                    move |e| {
+                        let inside_panel = match (event_target_node(&e), panel_el.peek().as_ref()) {
+                            (Some(target), Some(panel)) => panel.contains(Some(&target)),
+                            _ => false,
+                        };
+                        if !inside_panel {
+                            (on_dismiss.borrow_mut())();
+                        }
+                    },
+                ))
+            }),
+        );
     }
     #[cfg(not(feature = "web"))]
     {

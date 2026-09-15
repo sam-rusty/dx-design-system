@@ -1,5 +1,5 @@
 [workspace]
-members = ["macros", "components", "utils", "sdk"]
+members = ["macros", "components", "utils", "sdk", "enum-options"]
 
 resolver = "2"
 package.edition = "2024"

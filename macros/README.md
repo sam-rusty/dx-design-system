@@ -9,7 +9,8 @@ facade). One feature flag per macro (`default-features = false, features = ["ste
 | Macro | Kind | Purpose |
 |---|---|---|
 | `FormFields` | Derive | Generates typed field name constants for structs |
-| `FormOptions` | Derive | Generates `OPTIONS` constant for unit enums |
+| `FormOptions` | Derive | Generates enum options and web form traits |
+| `EnumOptions` | Derive | Generates only framework-independent enum options |
 | `Steps` | Derive | Generates step metadata for multi-step form enums |
 | `on_server!` | Function | Applies `#[cfg(feature = "server")]` to every item inside the block |
 | `on_web!` | Function | Applies `#[cfg(feature = "web")]` to every item inside the block |
@@ -141,6 +142,37 @@ enum Status {
 
 // Status::OPTIONS -> &[("active", "Active"), ("on_hold", "On Hold")]
 ```
+
+### Framework-independent metadata
+
+`EnumOptions` (the `form-options` feature) emits only the inherent `OPTIONS`
+constant, without `components::` references or Dioxus traits:
+
+```rust
+#[derive(serde::Serialize, serde::Deserialize, ds_macros::EnumOptions)]
+enum Status {
+    Active,
+    #[serde(rename = "on_hold")]
+    #[strum(to_string = "Waiting")]
+    OnHold,
+}
+```
+
+It supports non-generic string-valued unit enums with symmetric serde names.
+Serde aliases are accepted but never selectable; `serde(skip)` variants are
+omitted. Payload/tagged/untagged/custom serialization shapes, conditional
+variants, one-sided skips, mismatched directional names and colliding values or
+aliases are rejected.
+
+To add the existing web form traits when another macro already provides
+`OPTIONS`, derive `FormOptions` with `#[form_options(existing)]`. For example,
+`#[derive(EnumOptions, FormOptions)] #[form_options(existing)]` provides one
+constant plus the usual `FormSchema` / `FormValue` implementations.
+
+Both derives share the `ds-enum-options` parser. Explicit `strum(to_string)`
+always controls the label; `strum(serialize)` is only an input alias and never
+replaces display text. Camel-case wire values follow serde exactly, including
+acronyms (`HTTPServer` becomes `hTTPServer`).
 
 ### Supported `rename_all` rules
 

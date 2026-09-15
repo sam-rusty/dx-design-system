@@ -24,6 +24,32 @@ enum Plan {
     Pro,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ds_macros::EnumOptions, FormOptions)]
+#[form_options(existing)]
+#[serde(rename_all = "camelCase")]
+enum SharedPlan {
+    HTTPServer,
+    #[serde(rename = "paid", alias = "old")]
+    #[strum(to_string = "Paid plan", serialize = "old-alias")]
+    Pro,
+}
+
+#[test]
+fn framework_independent_options_feed_existing_web_form_traits() {
+    use components::{FormSchema, FormValue};
+    assert_eq!(
+        SharedPlan::OPTIONS,
+        &[("hTTPServer", "HTTP Server"), ("paid", "Paid plan")]
+    );
+    assert_eq!(SharedPlan::Pro.to_input(), "paid");
+    assert_eq!(SharedPlan::from_input("paid").unwrap(), SharedPlan::Pro);
+    assert_eq!(SharedPlan::json_schema(), "hTTPServer");
+    assert_eq!(
+        serde_json::to_value(SharedPlan::HTTPServer).unwrap(),
+        "hTTPServer"
+    );
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, Validate, FormFields)]
 struct Profile {
     #[validate(length(min = 1))]

@@ -7,7 +7,7 @@
 ))]
 use proc_macro::TokenStream;
 
-#[cfg(any(feature = "form-fields", feature = "form-options", feature = "steps"))]
+#[cfg(feature = "form-fields")]
 mod case;
 #[cfg(any(feature = "on-server", feature = "on-web"))]
 mod cfg_feature;
@@ -63,7 +63,7 @@ pub fn derive_form_fields(input: TokenStream) -> TokenStream {
 /// one unit variant is required — it is the default/first option — otherwise the derive is a
 /// compile error.
 #[cfg(feature = "form-options")]
-#[proc_macro_derive(FormOptions, attributes(strum))]
+#[proc_macro_derive(FormOptions, attributes(strum, form_options))]
 pub fn derive_form_options(input: TokenStream) -> TokenStream {
     form_options::derive_form_options(input)
 }
@@ -78,4 +78,13 @@ pub fn derive_form_options(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(Steps, attributes(step))]
 pub fn derive_steps(input: TokenStream) -> TokenStream {
     steps::derive_steps(input)
+}
+
+/// Generates only the framework-independent `OPTIONS` constant, with no Dioxus traits.
+/// Supports canonical, symmetric, string-valued unit enums. Add the web form traits with
+/// `#[derive(FormOptions)] #[form_options(existing)]`.
+#[cfg(feature = "form-options")]
+#[proc_macro_derive(EnumOptions, attributes(serde, strum))]
+pub fn derive_enum_options(input: TokenStream) -> TokenStream {
+    form_options::derive_enum_options(input)
 }

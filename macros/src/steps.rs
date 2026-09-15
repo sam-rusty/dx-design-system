@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, parse_macro_input};
 
-use crate::case::pascal_to_title;
+use ds_enum_options::case::pascal_to_title;
 
 pub fn derive_steps(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

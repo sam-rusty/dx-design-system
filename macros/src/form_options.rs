@@ -1,77 +1,67 @@
+use ds_enum_options::EnumOption;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, parse_macro_input};
 
-use crate::case::{
-    apply_rename_all, find_serde_rename, find_serde_rename_all, find_strum_to_string,
-    pascal_to_title,
-};
+fn options_const(name: &syn::Ident, options: &[EnumOption]) -> proc_macro2::TokenStream {
+    let entries = options.iter().map(|option| {
+        let (value, label) = (&option.value, &option.label);
+        quote! { (#value, #label) }
+    });
+    quote! {
+        impl #name {
+            pub const OPTIONS: &[(&str, &str)] = &[#(#entries),*];
+        }
+    }
+}
+
+pub fn derive_enum_options(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match ds_enum_options::options(&input, true) {
+        Ok(options) => options_const(&input.ident, &options).into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
 
 pub fn derive_form_options(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
-
-    let variants = match &input.data {
-        Data::Enum(data) => &data.variants,
-        _ => {
-            return syn::Error::new(name.span(), "FormOptions only supports enums")
-                .to_compile_error()
-                .into();
+    let mut existing = false;
+    for attr in input
+        .attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("form_options"))
+    {
+        if let Err(error) = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("existing") {
+                existing = true;
+                Ok(())
+            } else {
+                Err(meta.error("expected `existing`"))
+            }
+        }) {
+            return error.to_compile_error().into();
         }
-    };
-
-    let rename_all = find_serde_rename_all(&input.attrs);
-
-    // `OPTIONS` / `json_schema()` need at least one unit variant; an empty
-    // option list used to compile silently.
-    if !variants.iter().any(|v| v.fields.is_empty()) {
-        return syn::Error::new(
-            name.span(),
-            "FormOptions requires at least one unit variant (data variants have no option value)",
-        )
-        .to_compile_error()
-        .into();
     }
 
-    let unit_variants: Vec<_> = variants
-        .iter()
-        .filter(|v| v.fields.is_empty())
-        .map(|v| {
-            let variant_name = v.ident.to_string();
-            let value = find_serde_rename(&v.attrs)
-                .unwrap_or_else(|| apply_rename_all(&variant_name, rename_all.as_deref()));
-            let label =
-                find_strum_to_string(&v.attrs).unwrap_or_else(|| pascal_to_title(&variant_name));
-            (value, label)
-        })
-        .collect();
+    let options = match ds_enum_options::options(&input, false) {
+        Ok(options) => options,
+        Err(error) => return error.to_compile_error().into(),
+    };
+    let first_value = &options[0].value;
 
-    let entries: Vec<_> = unit_variants
-        .iter()
-        .map(|(value, label)| quote! { (#value, #label) })
-        .collect();
-
-    let first_value = unit_variants
-        .first()
-        .map(|(v, _)| v.clone())
-        .unwrap_or_default();
-
-    // FormValue (typed form store) is only expressible when every variant is
-    // a unit variant — data variants have no string form. Such enums still
-    // get `OPTIONS` / `FormSchema` for the dynamic form, but binding them to a
+    // FormValue (typed form store) needs a wire string for every variant; data
+    // variants and `serde(skip)` variants have none. Such enums still get
+    // `OPTIONS` / `FormSchema` for the dynamic form, but binding them to a
     // typed control fails with a `FormValue` bound error at the `field:` prop.
-    let all_unit = variants.iter().all(|v| v.fields.is_empty());
+    let all_unit = matches!(&input.data, Data::Enum(data) if data.variants.len() == options.len());
     let form_value_impl = if all_unit {
-        let to_arms = variants.iter().map(|v| {
-            let ident = &v.ident;
-            let value = find_serde_rename(&v.attrs)
-                .unwrap_or_else(|| apply_rename_all(&ident.to_string(), rename_all.as_deref()));
+        let to_arms = options.iter().map(|option| {
+            let (ident, value) = (&option.ident, &option.value);
             quote! { Self::#ident => #value.to_string() }
         });
-        let from_arms = variants.iter().map(|v| {
-            let ident = &v.ident;
-            let value = find_serde_rename(&v.attrs)
-                .unwrap_or_else(|| apply_rename_all(&ident.to_string(), rename_all.as_deref()));
+        let from_arms = options.iter().map(|option| {
+            let (ident, value) = (&option.ident, &option.value);
             quote! { #value => Ok(Self::#ident) }
         });
         quote! {
@@ -94,10 +84,13 @@ pub fn derive_form_options(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    let options_impl = if existing {
+        quote! {}
+    } else {
+        options_const(name, &options)
+    };
     let expanded = quote! {
-        impl #name {
-            pub const OPTIONS: &[(&str, &str)] = &[#(#entries),*];
-        }
+        #options_impl
 
         impl components::FormSchema for #name {
             const FIELD_TYPE: components::FieldType = components::FieldType::String;

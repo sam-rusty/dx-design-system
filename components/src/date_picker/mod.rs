@@ -8,8 +8,8 @@ pub mod typed;
 
 pub use date_range_picker::DateRangePicker;
 pub use date_time_picker::{
-    DateTimePicker, DateTimePickerBase, commit_datetime_value, hour_12_to_24, hour_24_to_12,
-    parse_datetime_value,
+    DateTimePicker, DateTimePickerBase, OffsetAt, commit_datetime_value, commit_datetime_value_in,
+    hour_12_to_24, hour_24_to_12, parse_datetime_value, parse_datetime_value_in,
 };
 pub use single::{DatePicker, DatePickerBase};
 

@@ -31,11 +31,16 @@ pub fn DateTimePicker(
     /// typed `OffsetDateTime`.
     #[props(default)]
     utc: bool,
+    /// In `utc` mode, the zone wall times are read and written in, as the
+    /// offset in force at an instant (e.g. an event's own time zone). Absent
+    /// means the device's zone.
+    #[props(default)]
+    offset_at: Option<Callback<time::OffsetDateTime, time::UtcOffset>>,
 ) -> Element {
     let open = use_signal(|| false);
     rsx! {
         FormFieldFrame { field, label, tooltip, class,
-            DateTimePickerControl { min, max, disabled, open, utc }
+            DateTimePickerControl { min, max, disabled, open, utc, offset_at }
         }
     }
 }

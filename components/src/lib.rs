@@ -234,8 +234,8 @@ pub use data_table::{
 #[cfg(feature = "date-picker")]
 pub use date_picker::{
     Date, DatePicker, DatePickerBase, DateRangePicker, DateTime, DateTimePicker,
-    DateTimePickerBase, ParseDateError, commit_datetime_value, hour_12_to_24, hour_24_to_12,
-    parse_datetime_value,
+    DateTimePickerBase, OffsetAt, ParseDateError, commit_datetime_value, commit_datetime_value_in,
+    hour_12_to_24, hour_24_to_12, parse_datetime_value, parse_datetime_value_in,
 };
 #[cfg(feature = "data-table")]
 pub use list_view::{FetchFn, ListEmpty, ListPage, ListView, RenderFn};

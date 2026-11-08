@@ -728,8 +728,9 @@ cleared); dynamic writes `""` and keeps the touched state so a required error sh
 
 For custom date-time controls, `parse_datetime_value(s, utc)` / `commit_datetime_value(date,
 hour, minute, utc)` convert between the stored wire value and wall-clock parts exactly as
-`DateTimePicker` does (including its RFC3339-UTC `utc` mode), and `hour_24_to_12` /
-`hour_12_to_24` handle the 12-hour clock. For money, `format::major_to_minor` /
+`DateTimePicker` does (including its RFC3339-UTC `utc` mode); the `_in` variants
+(`parse_datetime_value_in` / `commit_datetime_value_in`) take the picker's `offset_at` resolver
+too. `hour_24_to_12` / `hour_12_to_24` handle the 12-hour clock. For money, `format::major_to_minor` /
 `format::minor_to_major` are the `MoneyInput` conversions.
 
 ### `PasswordStrength`
@@ -1110,7 +1111,7 @@ Stored values: `DatePicker` → `YYYY-MM-DD`; `DateRangePicker` → JSON `["YYYY
 |-----------|--------|
 | `DatePicker` | `field` (`impl Into<Field>`), `class`, `min: Option<Date>`, `max: Option<Date>`, `disabled: ReadSignal<bool>`, `tooltip: Option<Element>` |
 | `DateRangePicker` | `field`, `class`, `min: Option<Date>`, `max: Option<Date>`, `disabled: ReadSignal<bool>`, `tooltip` |
-| `DateTimePicker` | `field`, `class`, `min: Option<DateTime>`, `max: Option<DateTime>`, `disabled: ReadSignal<bool>`, `tooltip`, `utc: bool` (store RFC3339 UTC, display device-local wall time — for form fields typed `OffsetDateTime`; the offset is resolved per instant, so DST is honoured. Server-side rendering has no device: the server renders UTC wall time and the client re-renders with the device offset after hydration) |
+| `DateTimePicker` | `field`, `class`, `min: Option<DateTime>`, `max: Option<DateTime>`, `disabled: ReadSignal<bool>`, `tooltip`, `utc: bool` (store RFC3339 UTC, display device-local wall time — for form fields typed `OffsetDateTime`; the offset is resolved per instant, so DST is honoured. Server-side rendering has no device: the server renders UTC wall time and the client re-renders with the device offset after hydration), `offset_at: OffsetAt` (`Option<Callback<OffsetDateTime, UtcOffset>>`: in `utc` mode, read and write wall times in this zone instead of the device's — e.g. `offset_at: move \|t\| event_tz.offset_at(t)` for an event's own time zone; a changed resolver applies on the next value change) |
 | `DatePickerBase` | standalone (no form binding): `value: ReadSignal<Option<String>>` (`YYYY-MM-DD`; `Some` = controlled), `on_value_change: Callback<String>`, `class`, `disabled: ReadSignal<bool>`, `min`/`max: Option<Signal<Date>>`, `is_open: Option<Signal<bool>>` (setting it to `true` externally opens the dialog with fresh staging state), `id`/`aria_invalid`/`aria_describedby: Option<String>` (trigger attributes; the form-bound pickers wire these from the field so the label's `for` targets the trigger) |
 
 Use `DatePickerBase` when you need a controlled date picker outside a `FormProvider` (drive it with your own `value`/`on_value_change`); the `field`-bound `DatePicker` is preferred inside forms. `DateTimePickerBase` follows the same shape (there is no exported `DateRangePickerBase`). `min` and `max` accept the typed values `components::Date` / `components::DateTime` (`Date` for `DatePicker`/`DateRangePicker`; `DateTime` for `DateTimePicker`). Dates outside the range are rendered disabled in the calendar and rejected in text-input mode. `Date::default()` / `DateTime::default()` return today / today-at-midnight (the calendar's "today": device-local under `web`, UTC otherwise) and are convenient for "no past" or "no future" constraints. Both types implement `FromStr` (`"2026-03-10".parse::<Date>()`); the panicking `From<String>` impls are kept for compatibility only. `DateTime` keeps seconds through serde (`2026-01-01 10:30:45`).

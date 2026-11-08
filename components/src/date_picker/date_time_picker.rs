@@ -119,18 +119,53 @@ fn wall_to_utc_rfc3339(date: Date, hour: u32, minute: u32, offset: time::UtcOffs
 /// is UTC. Public so custom pickers can bind the same wire value as
 /// `DateTimePicker`.
 pub fn parse_datetime_value(s: &str, utc: bool) -> Option<(Date, u32, u32)> {
-    if utc {
-        rfc3339_to_wall_at(s, local_offset_at)
-    } else {
-        parse_datetime(s)
-    }
+    parse_datetime_value_in(s, utc, None)
 }
 
 /// Picked wall time → stored form value (RFC3339 UTC in `utc` mode).
 /// Public counterpart of [`parse_datetime_value`].
 pub fn commit_datetime_value(date: Date, hour: u32, minute: u32, utc: bool) -> String {
+    commit_datetime_value_in(date, hour, minute, utc, None)
+}
+
+/// The UTC offset in force at an instant in the zone a `utc` picker reads and
+/// writes wall times in; `None` is the device's zone. Props spell the type out:
+/// Dioxus recognises callback props by name, which is what lets a closure be
+/// passed and keeps the callback current across re-renders.
+pub type OffsetAt = Option<Callback<time::OffsetDateTime, time::UtcOffset>>;
+
+fn resolve_offset(offset_at: OffsetAt, instant: time::OffsetDateTime) -> time::UtcOffset {
+    match offset_at {
+        Some(resolve) => resolve.call(instant),
+        None => local_offset_at(instant),
+    }
+}
+
+/// [`parse_datetime_value`] with wall times read in the `offset_at` zone.
+pub fn parse_datetime_value_in(
+    s: &str,
+    utc: bool,
+    offset_at: OffsetAt,
+) -> Option<(Date, u32, u32)> {
     if utc {
-        wall_to_utc_rfc3339_at(date, hour, minute, local_offset_at)
+        rfc3339_to_wall_at(s, |instant| resolve_offset(offset_at, instant))
+    } else {
+        parse_datetime(s)
+    }
+}
+
+/// [`commit_datetime_value`] with the wall time read in the `offset_at` zone.
+pub fn commit_datetime_value_in(
+    date: Date,
+    hour: u32,
+    minute: u32,
+    utc: bool,
+    offset_at: OffsetAt,
+) -> String {
+    if utc {
+        wall_to_utc_rfc3339_at(date, hour, minute, |instant| {
+            resolve_offset(offset_at, instant)
+        })
     } else {
         format_wire_datetime(date, hour, minute)
     }
@@ -169,6 +204,11 @@ pub fn DateTimePickerBase(
     /// Store RFC3339 UTC, display device-local wall time.
     #[props(default)]
     utc: bool,
+    /// In `utc` mode, read and write wall times in this zone instead of the
+    /// device's: the offset in force at a given instant. A changed resolver
+    /// takes effect on the next value change.
+    #[props(default)]
+    offset_at: Option<Callback<time::OffsetDateTime, time::UtcOffset>>,
     /// DOM id for the trigger (targeted by the field label).
     #[props(default)]
     id: Option<String>,
@@ -189,7 +229,7 @@ pub fn DateTimePickerBase(
 
     let current_value = use_memo(move || value().unwrap_or_default());
 
-    let parsed = use_memo(move || parse_datetime_value(&current_value(), utc));
+    let parsed = use_memo(move || parse_datetime_value_in(&current_value(), utc, offset_at));
 
     let initial_date = (*parsed.peek()).map(|(d, _, _)| d).unwrap_or_else(today);
     let cal_state = use_calendar_state(initial_date);
@@ -210,7 +250,7 @@ pub fn DateTimePickerBase(
         if val.is_empty() {
             String::new()
         } else {
-            parse_datetime_value(&val, utc)
+            parse_datetime_value_in(&val, utc, offset_at)
                 .map(|(d, h, m)| format_display_datetime(&d, h, m))
                 .unwrap_or(val)
         }
@@ -337,7 +377,8 @@ pub fn DateTimePickerBase(
                                         if let Some(date) = *staging_date.peek() {
                                             let h = *staging_hour.peek();
                                             let m = *staging_minute.peek();
-                                            let formatted = commit_datetime_value(date, h, m, utc);
+                                            let formatted =
+                                                commit_datetime_value_in(date, h, m, utc, offset_at);
                                             on_value_change.call(formatted);
                                         }
                                         is_open_sig.set(false);
@@ -470,6 +511,11 @@ pub struct DateTimePickerProps {
     /// typed `OffsetDateTime`.
     #[props(default)]
     pub utc: bool,
+    /// In `utc` mode, the zone wall times are read and written in, as the
+    /// offset in force at an instant (e.g. an event's own time zone). Absent
+    /// means the device's zone.
+    #[props(default)]
+    pub offset_at: Option<Callback<time::OffsetDateTime, time::UtcOffset>>,
 }
 
 /// Form-bound date-time picker with stacked label and inline error.
@@ -486,6 +532,7 @@ pub fn DateTimePicker(props: DateTimePickerProps) -> Element {
                 disabled: props.disabled,
                 open,
                 utc: props.utc,
+                offset_at: props.offset_at,
             }
         }
     }
@@ -498,6 +545,7 @@ pub(crate) fn DateTimePickerControl(
     #[props(default)] disabled: ReadSignal<bool>,
     open: Signal<bool>,
     #[props(default)] utc: bool,
+    #[props(default)] offset_at: Option<Callback<time::OffsetDateTime, time::UtcOffset>>,
 ) -> Element {
     let binding = use_field_binding();
     let form_disabled = binding.disabled;
@@ -515,6 +563,7 @@ pub(crate) fn DateTimePickerControl(
             min: min_opt,
             max: max_opt,
             utc,
+            offset_at,
             id: binding.id.clone(),
             aria_invalid: binding.aria_invalid(),
             aria_describedby: binding.aria_describedby_when_invalid(),

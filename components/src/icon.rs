@@ -112,6 +112,17 @@ pub enum IconName {
     Play,
     Quote,
     Video,
+    Armchair,
+    Rows3,
+    CircleDot,
+    Sparkles,
+    Theater,
+    FlipHorizontal,
+    Scan,
+    LayoutTemplate,
+    CircleOff,
+    LockOpen,
+    SquareDashedPointer,
     LinkedIn,
     Instagram,
     BrandX,
@@ -948,6 +959,79 @@ fn icon_paths(name: IconName) -> Element {
             path { d: "M2 8.82a15 15 0 0 1 4.177-2.643" }
             path { d: "M22 8.82a15 15 0 0 0-11.288-3.764" }
             path { d: "m2 2 20 20" }
+        },
+        IconName::Armchair => rsx! {
+            path { d: "M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3" }
+            path { d: "M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0z" }
+            path { d: "M5 18v2" }
+            path { d: "M19 18v2" }
+        },
+        IconName::Rows3 => rsx! {
+            rect { width: "18", height: "18", x: "3", y: "3", rx: "2" }
+            path { d: "M21 9H3" }
+            path { d: "M21 15H3" }
+        },
+        IconName::CircleDot => rsx! {
+            circle { cx: "12", cy: "12", r: "10" }
+            circle { cx: "12", cy: "12", r: "1" }
+        },
+        IconName::Sparkles => rsx! {
+            path { d: "M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" }
+            path { d: "M20 3v4" }
+            path { d: "M22 5h-4" }
+            path { d: "M4 17v2" }
+            path { d: "M5 18H3" }
+        },
+        IconName::Theater => rsx! {
+            path { d: "M2 10s3-3 3-8" }
+            path { d: "M22 10s-3-3-3-8" }
+            path { d: "M10 2c0 4.4-3.6 8-8 8" }
+            path { d: "M14 2c0 4.4 3.6 8 8 8" }
+            path { d: "M2 10s2 2 2 5" }
+            path { d: "M22 10s-2 2-2 5" }
+            path { d: "M8 15h8" }
+            path { d: "M2 22v-1a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1" }
+            path { d: "M14 22v-1a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1" }
+        },
+        IconName::FlipHorizontal => rsx! {
+            path { d: "m3 7 5 5-5 5V7" }
+            path { d: "m21 7-5 5 5 5V7" }
+            path { d: "M12 20v2" }
+            path { d: "M12 14v2" }
+            path { d: "M12 8v2" }
+            path { d: "M12 2v2" }
+        },
+        IconName::Scan => rsx! {
+            path { d: "M3 7V5a2 2 0 0 1 2-2h2" }
+            path { d: "M17 3h2a2 2 0 0 1 2 2v2" }
+            path { d: "M21 17v2a2 2 0 0 1-2 2h-2" }
+            path { d: "M7 21H5a2 2 0 0 1-2-2v-2" }
+        },
+        IconName::LayoutTemplate => rsx! {
+            rect { width: "18", height: "7", x: "3", y: "3", rx: "1" }
+            rect { width: "9", height: "7", x: "3", y: "14", rx: "1" }
+            rect { width: "5", height: "7", x: "16", y: "14", rx: "1" }
+        },
+        IconName::CircleOff => rsx! {
+            path { d: "m2 2 20 20" }
+            path { d: "M8.35 2.69A10 10 0 0 1 21.3 15.65" }
+            path { d: "M19.08 19.08A10 10 0 1 1 4.92 4.92" }
+        },
+        IconName::LockOpen => rsx! {
+            rect { width: "18", height: "11", x: "3", y: "11", rx: "2", ry: "2" }
+            path { d: "M7 11V7a5 5 0 0 1 9.9-1" }
+        },
+        IconName::SquareDashedPointer => rsx! {
+            path { d: "M12.034 12.681a.498.498 0 0 1 .647-.647l9 3.5a.5.5 0 0 1-.033.943l-3.444 1.068a1 1 0 0 0-.66.66l-1.067 3.443a.5.5 0 0 1-.943.033z" }
+            path { d: "M5 3a2 2 0 0 0-2 2" }
+            path { d: "M19 3a2 2 0 0 1 2 2" }
+            path { d: "M5 21a2 2 0 0 1-2-2" }
+            path { d: "M9 3h1" }
+            path { d: "M9 21h2" }
+            path { d: "M14 3h1" }
+            path { d: "M3 9v1" }
+            path { d: "M21 9v2" }
+            path { d: "M3 14v1" }
         },
         IconName::LinkedIn
         | IconName::Instagram

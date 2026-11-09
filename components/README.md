@@ -2519,6 +2519,35 @@ rsx! {
 }
 ```
 
+### `NumberStepperBase`
+
+The same control driven by a plain value and a change handler, for a number that lives in a struct or a store field rather than in its own signal. `NumberStepper` is this with a `Signal` wired in.
+
+| Prop | Type | Default |
+|------|------|---------|
+| `value` | `i64` | required |
+| `on_change` | `EventHandler<i64>` | required (receives the next value, already clamped) |
+| `step` | `i64` | `1` |
+| `min` | `i64` | `i64::MIN` |
+| `max` | `i64` | `i64::MAX` |
+| `disabled` | `bool` | `false` |
+| `label` | `String` | `""` (what the number counts, appended to the buttons' accessible names) |
+| `class` | `String` | `""` (pass `"flex w-full"` to stretch it; the value cell grows) |
+
+```rust
+use components::NumberStepperBase;
+
+rsx! {
+    NumberStepperBase {
+        value: rows.count,
+        min: 1,
+        max: 26,
+        label: "rows",
+        on_change: move |next| rows.write().count = next,
+    }
+}
+```
+
 ---
 
 ## StatTile

@@ -191,7 +191,7 @@ pub use input_types::{
     PhoneInputBaseProps, TextInputBase, TypedInputBaseProps,
 };
 #[cfg(feature = "form")]
-pub use number_stepper::NumberStepper;
+pub use number_stepper::{NumberStepper, NumberStepperBase};
 #[cfg(feature = "form")]
 pub use password_strength::{PasswordStrength, PasswordStrengthProps};
 #[cfg(feature = "form")]

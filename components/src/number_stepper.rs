@@ -21,32 +21,63 @@ pub fn NumberStepper(
     #[props(default)] class: String,
 ) -> Element {
     let mut value = value;
-    let v = value();
+    rsx! {
+        NumberStepperBase {
+            value: value(),
+            step,
+            min,
+            max,
+            class,
+            on_change: move |next| value.set(next),
+        }
+    }
+}
+
+/// The stepper itself, driven by a plain value and a change handler. Use it when
+/// the number lives in a struct or a store field rather than in a signal of its
+/// own. `on_change` receives the next value, already clamped to `[min, max]`.
+#[component]
+pub fn NumberStepperBase(
+    value: i64,
+    on_change: EventHandler<i64>,
+    #[props(default = 1)] step: i64,
+    #[props(default = i64::MIN)] min: i64,
+    #[props(default = i64::MAX)] max: i64,
+    #[props(default)] disabled: bool,
+    /// What the number counts ("rows"), appended to the buttons' accessible names.
+    #[props(default)]
+    label: String,
+    #[props(default)] class: String,
+) -> Element {
     let btn = "w-7 h-[30px] grid place-items-center text-[15px] text-foreground \
                hover:bg-[rgba(120,120,128,.14)] disabled:opacity-40 disabled:pointer-events-none cursor-pointer";
     let container = merge(&[
         "inline-flex items-center rounded-lg border-[.5px] border-line-strong overflow-hidden bg-glass-hi",
+        if disabled { "opacity-60" } else { "" },
         &class,
     ]);
+    let decrease = format!("Decrease {label}");
+    let increase = format!("Increase {label}");
     rsx! {
         div { class: container,
             button {
                 r#type: "button",
                 class: btn,
-                "aria-label": "Decrease",
-                disabled: v <= min,
-                onclick: move |_| value.set(stepped(value(), -1, step, min, max)),
+                "aria-label": decrease.trim_end(),
+                disabled: disabled || value <= min,
+                onclick: move |_| on_change.call(stepped(value, -1, step, min, max)),
                 "−"
             }
-            span { class: "w-[42px] text-center text-sm tabular-nums leading-[30px] border-x-[.5px] border-line",
-                "{v}"
+            // Grows when the caller stretches the control (`class: "flex w-full"`).
+            span { class: "min-w-[42px] flex-1 text-center text-sm tabular-nums leading-[30px] border-x-[.5px] border-line",
+                "{value}"
             }
             button {
                 r#type: "button",
                 class: btn,
-                "aria-label": "Increase",
-                disabled: v >= max,
-                onclick: move |_| value.set(stepped(value(), 1, step, min, max)),
+                "aria-label": increase.trim_end(),
+                disabled: disabled || value >= max,
+                onclick: move |_| on_change.call(stepped(value, 1, step, min, max)),
                 "+"
             }
         }
